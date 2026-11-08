@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "MDI Downloader",
+  "version": "1.1.0",
+  "description": "Send downloads to the MDI Downloader desktop app.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxvufpQYsgiwPxXyEainJWkzFuxDVA7mdHI+Cawn7n8sViV+Za6nEP6WNl4ki+lwv+YXAyIPCQtB3/wk8VkbNbIFQHTB2KIaQi41f7H2Wmu9D1514O32VKtOw8yBa0XQcGPoJBSHxr3dRe+Qe80WUZUacSEQJfeo4uEc64cz/l5ZGF62mADAeQyfYe8OeMtTpJcPl/U6O99qZj3tEBfWJ8e2+sxZMjBcq3qSJXrTOnD/Xg8xM2FQplGvPh/76rvc5cX7tyN+USUNb21odBkiAb3jdR7FZMKPEPDgUodhbSSkHLqG3GbhtnGWhhEyQijN3HfCtV2QE0KuM14dfgh9f2wIDAQAB",
+  "permissions": [
+    "contextMenus",
+    "downloads",
+    "cookies",
+    "storage",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "MDI: click to toggle download capture",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; base-uri 'none'"
+  }
+}
