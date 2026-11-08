@@ -804,16 +804,15 @@ def main(argv: list[str] | None = None) -> None:
 
 def status_notes() -> str:
     from . import media
-    from .install import is_installed
+    frozen = getattr(sys, "frozen", False)   # running as MDI.exe
     notes = []
-    if not is_installed():
-        notes.append("browser not connected (python -m mdi.install)")
     if not media.available():
         notes.append("video sites OFF (pip install yt-dlp)")
     else:
         age = media.age_days()
         if age is not None and age > 90:
-            notes.append(f"yt-dlp is {age} days old (pip install -U yt-dlp)")
+            fix = "install a newer MDI" if frozen else "pip install -U yt-dlp"
+            notes.append(f"yt-dlp is {age} days old ({fix})")
         if not media.has_ffmpeg():
             notes.append("no ffmpeg: video limited to single-file formats")
     return "".join(" · " + n for n in notes)

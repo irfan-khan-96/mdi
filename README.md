@@ -9,6 +9,20 @@ python -m mdi.cli https://host/file -o D:\Downloads -n 16   # command line
 python -m unittest discover -s tests -t .                    # tests
 ```
 
+## Install (Windows)
+
+Run `MDI-Setup-<version>.exe`. It installs for your user only, so there's no admin prompt. It puts MDI in `%LOCALAPPDATA%\Programs\MDI Downloader`, adds a Start Menu shortcut (a desktop shortcut is optional), and you uninstall it from **Settings → Apps**. Python and yt-dlp are bundled. ffmpeg isn't (it's large); install it separately for HD video, and MDI finds it on PATH. Your download list and settings in `%APPDATA%\MDI` are kept when you uninstall.
+
+To build the installer yourself (needs [Inno Setup 6](https://jrsoftware.org/isinfo.php); without it you still get `dist/MDI/MDI.exe`):
+
+```bash
+py -m venv build/venv
+build/venv/Scripts/python -m pip install pyinstaller yt-dlp certifi
+build/venv/Scripts/python tools/build.py
+```
+
+The output is `dist/MDI/MDI.exe` (about 37 MB as a folder) and `dist/MDI-Setup-<version>.exe` (about 20 MB). The bundled yt-dlp is frozen at build time; video sites change often, so rebuild when the status bar says yt-dlp is old.
+
 ## How IDM works (and what MDI copies)
 
 IDM's speed doesn't come from anything secret. It comes from four ideas, and MDI implements all four in [mdi/engine.py](mdi/engine.py):
@@ -108,7 +122,7 @@ The design was audited against the OWASP Top 10 (2021). Each fix has a regressio
 
 ## Size and tests
 
-**Result:** about 1,900 lines of Python (comments included) across 9 modules, plus a ~115-line extension and 36 tests. The tests cover:
+**Result:** about 2,800 lines of Python (comments included) across 11 modules, plus a ~115-line extension and 72 tests. The tests cover:
 - multi-connection downloads checked byte-for-byte
 - dynamic splitting of a slow tail
 - pause → restart → resume
