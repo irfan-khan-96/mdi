@@ -52,6 +52,43 @@ def has_ffmpeg() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
+# YouTube serves some videos (e.g. "made for kids") only to clients that
+# solve a JavaScript challenge. yt-dlp does that with the yt-dlp-ejs
+# scripts run in a JS runtime - but only enables Deno by default. Enable
+# whichever of them is installed.
+_JS_RUNTIMES = ("deno", "node", "bun")
+
+
+def js_runtimes() -> dict:
+    found = {name: {} for name in _JS_RUNTIMES if shutil.which(name)}
+    return found or {"deno": {}}
+
+
+def challenge_ready() -> bool:
+    """True if YouTube's JavaScript challenge can be solved."""
+    if not any(shutil.which(n) for n in _JS_RUNTIMES):
+        return False
+    try:
+        import yt_dlp_ejs  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+NEEDS_JS = ("YouTube asked for a JavaScript check that MDI couldn't solve "
+            "(needs yt-dlp-ejs and Node.js or Deno)")
+
+
+def _explain_failure(msg: str) -> str:
+    """Spot failures caused by the missing JS-challenge helper: YouTube
+    then just says "not available" or offers no formats."""
+    low = msg.lower()
+    if not challenge_ready() and ("not available" in low or
+                                  "page needs to be reloaded" in low):
+        return NEEDS_JS
+    return msg
+
+
 MAX_PLAYLIST = 1000   # YouTube "mixes" are endless; stop somewhere sane
 _UNAVAILABLE = ("[private video]", "[deleted video]", "[unavailable video]")
 
@@ -79,12 +116,13 @@ def expand_playlist(url: str) -> tuple[str, list[str]]:
         url = f"https://www.youtube.com/playlist?list={q['list'][0]}"
     opts = {"extract_flat": "in_playlist", "quiet": True,
             "no_warnings": True, "logger": _SilentLogger(),
-            "playlistend": MAX_PLAYLIST, "skip_download": True}
+            "playlistend": MAX_PLAYLIST, "skip_download": True,
+            "js_runtimes": js_runtimes()}
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as e:  # noqa: BLE001
-        raise RuntimeError(_clean(e)) from e
+        raise RuntimeError(_explain_failure(_clean(e))) from e
     return playlist_entries(info)
 
 
@@ -147,6 +185,7 @@ def download(dl) -> None:
         "windowsfilenames": True,
         "continuedl": True,          # resume .part files after a pause
         "concurrent_fragment_downloads": dl.connections,
+        "js_runtimes": js_runtimes(),
     }
     if ffmpeg:
         opts["merge_output_format"] = "mp4"
@@ -183,7 +222,7 @@ def download(dl) -> None:
     except Exception as e:  # noqa: BLE001 - yt-dlp wraps everything
         if dl._halt.is_set():
             return                    # paused by the user
-        raise FatalError(_clean(e)) from e
+        raise FatalError(_explain_failure(_clean(e))) from e
 
     # Video titles are chosen by whoever uploaded them: strip characters
     # that could disguise the file type, then tag it as from the Internet.

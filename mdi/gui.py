@@ -533,6 +533,23 @@ class App:
                 "MDI", f"Copied:  {cmd}\n\nPaste it into a terminal and "
                        "press Enter, then restart MDI and try again.")
             return
+        elif action == "js_setup":
+            steps = js_setup_steps()
+            if not steps:            # fixed meanwhile (e.g. Node installed)
+                self.manager.resume(d)
+                return
+            cmd = next((s for s in steps if s.startswith(("pip", "winget"))),
+                       "")
+            if cmd:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(cmd)
+            messagebox.showinfo(
+                "MDI", "To download this video MDI needs:\n\n" +
+                "\n".join(f"•  {s}" for s in steps) +
+                (f"\n\nCopied:  {cmd}\nPaste it into a terminal and press "
+                 "Enter." if cmd else "") +
+                "\n\nThen restart MDI and try again.")
+            return
         elif action != "retry":
             return
         self.manager.resume(d)
@@ -802,6 +819,20 @@ def main(argv: list[str] | None = None) -> None:
     lock.close()
 
 
+def js_setup_steps() -> list[str]:
+    """What's missing for YouTube's JavaScript check, as steps."""
+    import shutil
+    steps = []
+    try:
+        import yt_dlp_ejs  # noqa: F401
+    except ImportError:
+        steps.append("install a newer MDI" if getattr(sys, "frozen", False)
+                     else 'pip install -U "yt-dlp[default]"')
+    if not any(shutil.which(n) for n in ("deno", "node", "bun")):
+        steps.append("winget install DenoLand.Deno   (or install Node.js)")
+    return steps
+
+
 def status_notes() -> str:
     from . import media
     frozen = getattr(sys, "frozen", False)   # running as MDI.exe
@@ -813,6 +844,9 @@ def status_notes() -> str:
         if age is not None and age > 90:
             fix = "install a newer MDI" if frozen else "pip install -U yt-dlp"
             notes.append(f"yt-dlp is {age} days old ({fix})")
+        if not media.challenge_ready():
+            notes.append("some YouTube videos won't download "
+                         "(double-click a failed one for the fix)")
         if not media.has_ffmpeg():
             notes.append("no ffmpeg: video limited to single-file formats")
     return "".join(" · " + n for n in notes)
