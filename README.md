@@ -17,7 +17,7 @@ To build the installer yourself (needs [Inno Setup 6](https://jrsoftware.org/isi
 
 ```bash
 py -m venv build/venv
-build/venv/Scripts/python -m pip install pyinstaller yt-dlp certifi
+build/venv/Scripts/python -m pip install pyinstaller yt-dlp yt-dlp-ejs certifi
 build/venv/Scripts/python tools/build.py
 ```
 
@@ -57,14 +57,14 @@ It also does the supporting work that makes those four ideas reliable:
 A video-site link is a web page, not a file. If [yt-dlp](https://github.com/yt-dlp/yt-dlp) is installed, MDI hands such links to it automatically ([mdi/media.py](mdi/media.py)). The download appears in the same list, with progress, pause and resume. yt-dlp supports about 1,800 sites, and its maintainers keep up with YouTube's frequent changes.
 
 ```bash
-pip install yt-dlp
+pip install "yt-dlp[default]"    # includes yt-dlp-ejs, see below
 ```
 
 - **For HD:** also put [ffmpeg](https://ffmpeg.org/download.html) on your PATH (`winget install Gyan.FFmpeg`). YouTube sends HD video and audio as separate streams, and ffmpeg merges them into one `.mp4`. Without ffmpeg, MDI uses the best format that already has both, often 360p.
 - **Playlists:** for a playlist link, the Add dialog shows a "Download the whole playlist" checkbox. Tick it and MDI reads the list (nothing is downloaded yet), then adds each video as its own row in a folder named after the playlist. Private or deleted videos and ones already in the list are skipped, and at most 1000 videos are added. Unticked, a `watch?v=…&list=…` link downloads only that video.
 - **Your responsibility:** downloading from YouTube is against its Terms of Service, and copyright still applies. Only download what you have the right to.
 
-The status bar shows when yt-dlp or ffmpeg is missing.
+The status bar shows when yt-dlp or ffmpeg is missing. YouTube shows some videos, such as ones made for kids, only to players that pass a JavaScript check. To pass it, yt-dlp needs its `yt-dlp-ejs` package and a JavaScript runtime: Node.js, Deno or Bun. MDI turns on whichever is installed (yt-dlp on its own only looks for Deno). Without them, YouTube just says "This video is not available"; MDI recognises that and the fix dialog shows what to install.
 
 ### Install the browser extension (Chrome / Edge / Brave)
 1. Register MDI with your browsers. This is per-user, needs no admin rights, and `--remove` undoes it:

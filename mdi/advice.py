@@ -7,6 +7,7 @@ Actions the GUI knows how to perform:
   restart        throw away the partial file and start over
   video_setup    copy "pip install yt-dlp"
   update_ytdlp   copy "pip install -U yt-dlp"
+  js_setup       explain / copy what's missing for YouTube's JS check
   None           nothing MDI can safely do; the sentence explains why
 """
 
@@ -19,6 +20,10 @@ _RULES = [
     (r"web page, not a file",
      "This is a web page, not a file. Turn on video downloads to save "
      "videos from sites like YouTube.", "video_setup"),
+    (r"javascript check",
+     "YouTube wants a quick check before it shares this video (common for "
+     "videos made for kids). MDI needs a small helper to pass it.",
+     "js_setup"),
     (r"changed on the server",
      "The file was updated on the website after the download started.",
      "restart"),
@@ -86,6 +91,7 @@ ACTION_LABELS = {
     "restart": "Start over",
     "video_setup": "Copy setup command",
     "update_ytdlp": "Copy update command",
+    "js_setup": "Set up helper…",
 }
 
 

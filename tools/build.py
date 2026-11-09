@@ -1,7 +1,7 @@
 """Build MDI.exe and (if Inno Setup is installed) the installer.
 
     py -m venv build/venv
-    build/venv/Scripts/python -m pip install pyinstaller yt-dlp certifi
+    build/venv/Scripts/python -m pip install pyinstaller yt-dlp yt-dlp-ejs certifi
     build/venv/Scripts/python tools/build.py
 
 Output:
@@ -70,6 +70,11 @@ def main() -> int:
         "--paths", ROOT,
         "--collect-submodules", "mdi",
         "--hidden-import", "yt_dlp",
+        # YouTube's JavaScript-challenge scripts (data files, not code
+        # PyInstaller would find on its own). A JS runtime (Node/Deno) is
+        # still needed on the PC.
+        "--hidden-import", "yt_dlp_ejs",
+        "--collect-data", "yt_dlp_ejs",
         "--exclude-module", "PIL",          # only tools/make_icon.py uses it
         "--distpath", os.path.join(ROOT, "dist"),
         "--workpath", os.path.join(work, "pyinstaller"),
