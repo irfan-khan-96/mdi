@@ -13,9 +13,13 @@ from .advice import ACTION_LABELS, explain
 from . import media
 from .engine import (COMPLETED, DOWNLOADING, ERROR, QUEUED, Download,
                      sanitize_filename)
-from .manager import Manager
-from .safety import acquire_instance_lock, check_url
+from .manager import Manager, partial_files
+from .safety import (acquire_instance_lock, check_url, credentials_for,
+                     get_logger)
 from .winshell import Notifier, Taskbar, is_foreground
+
+
+log = get_logger()
 
 
 def fmt_size(n: float | None) -> str:
@@ -29,7 +33,7 @@ def fmt_size(n: float | None) -> str:
 
 
 def fmt_eta(s: float | None) -> str:
-    if s is None:
+    if s is None or s < 0:
         return ""
     s = int(s)
     h, m = divmod(s, 3600)
@@ -340,6 +344,8 @@ class App:
         root.bind("<F1>", lambda e: messagebox.showinfo(
             "Keyboard shortcuts", SHORTCUTS_HELP, parent=root))
         root.protocol("WM_DELETE_WINDOW", self.quit)
+        root.report_callback_exception = lambda *exc: log.error(
+            "error in the window", exc_info=exc)
 
         # Taskbar progress + notifications when the window isn't in front.
         root.update_idletasks()
@@ -445,10 +451,14 @@ class App:
                 "disk?\n\nThis can't be undone.", icon="warning",
                 default="no", parent=self.root):
             return
+        taken = self.manager.take(items)
         for d in items:
-            self.manager.remove(d, delete_files=True)
             if self.tree.exists(d.id):
                 self.tree.delete(d.id)
+        # Stopping connections can take a moment: delete off the UI thread.
+        threading.Thread(target=self.manager.discard, args=(taken,),
+                         kwargs={"delete_finished": True},
+                         daemon=True).start()
 
     def open_folder(self):
         items = self.selected()
@@ -496,9 +506,9 @@ class App:
     def apply_fix(self, d: Download, action: str | None) -> None:
         """Carry out the one fix suggested for a failed download."""
         def drop_partial():
-            if d.part_path and os.path.isfile(d.part_path):
+            for p in partial_files(d):
                 try:
-                    os.remove(d.part_path)
+                    os.remove(p)
                 except OSError:
                     pass
             d.segments = []
@@ -511,10 +521,14 @@ class App:
             if not url:
                 return
             try:
-                d.url, d.final_url = check_url(url), None
+                new = check_url(url)
             except ValueError as e:
                 messagebox.showerror("MDI", str(e).capitalize() + ".")
                 return
+            # Cookies were captured for the old site: never send them to
+            # a different one.
+            d.headers = credentials_for(d.url, new, d.headers)
+            d.url, d.final_url = new, None
         elif action == "change_folder":
             folder = filedialog.askdirectory(initialdir=d.save_dir,
                                              parent=self.root)
@@ -556,11 +570,16 @@ class App:
         self.manager.save()
 
     def quit(self):
+        active = sum(1 for d in self.manager.downloads
+                     if d.status in (DOWNLOADING, QUEUED))
+        if active and not messagebox.askokcancel(
+                "Close MDI", close_text(active), parent=self.root):
+            return
         self.status.config(text="Saving state…")
         self.root.update_idletasks()
         taken, self._undo = self._undo, []
-        self.manager.discard(taken)       # removal becomes final on exit
         self.manager.shutdown()
+        self.manager.discard(taken, wait=1)   # removal is final on exit
         self.taskbar.clear()
         self.notifier.close()
         self.root.destroy()
@@ -568,7 +587,7 @@ class App:
     # ---- periodic refresh -------------------------------------------------
     def _row(self, d: Download) -> tuple:
         got = d.downloaded
-        pct = f"{got * 100 / d.size:.1f}%" if d.size else \
+        pct = f"{min(got, d.size) * 100 / d.size:.1f}%" if d.size else \
             ("100%" if d.status == COMPLETED else "")
         running = d.status == DOWNLOADING
         status = d.status.capitalize()
@@ -589,6 +608,14 @@ class App:
                 status)
 
     def _refresh(self):
+        try:
+            self._refresh_once()
+        except Exception:  # noqa: BLE001 - one bad tick mustn't stop updates
+            log.exception("error while refreshing the window")
+        finally:
+            self.root.after(500, self._refresh)
+
+    def _refresh_once(self):
         if self.manager.process_inbox():      # new downloads from browser
             self.root.deiconify()
             self.root.lift()
@@ -601,7 +628,6 @@ class App:
         self._update_taskbar()
         self._notify_finished()
         self._handle_clicks()
-        self.root.after(500, self._refresh)
 
     def _refresh_rows(self) -> float:
         """Sync the list with the manager; returns total speed."""
@@ -700,6 +726,12 @@ Esc\tClear the selection"""
 
 
 UNDO_SECONDS = 10
+
+
+def close_text(active: int) -> str:
+    what = "1 download is" if active == 1 else f"{active} downloads are"
+    return (f"{what} still running.\n\nClosing pauses them. They continue "
+            "from where they stopped the next time you open MDI.")
 
 
 def undo_text(n: int) -> str:

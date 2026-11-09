@@ -137,6 +137,36 @@ def playlist_entries(info: dict) -> tuple[str, list[str]]:
     return str(info.get("title") or "Playlist"), urls[:MAX_PLAYLIST]
 
 
+_FORMAT_PART = None
+
+
+def leftovers(stem: str | None) -> list[str]:
+    """yt-dlp's temporary files for one video: ``<stem>.f399.mp4.part``,
+    ``<stem>.f251.webm`` (waiting to be merged), ``.ytdl``, fragments.
+    ``stem`` is the output path without its extension. The finished file
+    (``<stem>.mp4``) is never included."""
+    import re
+    global _FORMAT_PART
+    if _FORMAT_PART is None:
+        _FORMAT_PART = re.compile(r"^\.f[\w-]+\.\w+$")
+    if not stem:
+        return []
+    folder, prefix = os.path.split(stem)
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    found = []
+    for n in names:
+        if not n.startswith(prefix + "."):
+            continue
+        rest = n[len(prefix):]
+        if rest.endswith((".part", ".ytdl")) or ".part-Frag" in rest or \
+                _FORMAT_PART.match(rest):
+            found.append(os.path.join(folder, n))
+    return found
+
+
 class _Paused(Exception):
     pass
 
@@ -209,7 +239,9 @@ def download(dl) -> None:
             sizes = [f.get("filesize") or f.get("filesize_approx")
                      for f in formats]
             dl.size = int(sum(sizes)) if all(sizes) else None
-            dl.filename = os.path.basename(ydl.prepare_filename(info))
+            planned = ydl.prepare_filename(info)
+            dl.media_stem = os.path.splitext(planned)[0]
+            dl.filename = os.path.basename(planned)
             if ffmpeg and len(formats) > 1:
                 dl.filename = os.path.splitext(dl.filename)[0] + ".mp4"
             dl.resumable = True
@@ -233,9 +265,10 @@ def download(dl) -> None:
         new = unique_path(os.path.dirname(path), clean)
         os.replace(path, new)
         path = new
+    if not os.path.isfile(path):
+        raise FatalError("the finished video file is missing")
     mark_of_the_web(path, dl.url, dl.headers.get("Referer"))
 
     dl.path, dl.filename = path, os.path.basename(path)
-    if os.path.exists(path):
-        dl.size = os.path.getsize(path)
-        dl._media_got = dl.size
+    dl.size = os.path.getsize(path)
+    dl._media_got = dl.size

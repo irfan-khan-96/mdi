@@ -171,7 +171,7 @@ def strip_spoofing(name: str) -> str:
 def mark_of_the_web(path: str, url: str, referrer: str | None = None) -> None:
     """Tag a file as downloaded from the Internet (Zone 3), exactly like
     browsers do, so SmartScreen / Office Protected View still apply."""
-    if sys.platform != "win32" or not path:
+    if sys.platform != "win32" or not path or not os.path.isfile(path):
         return
     lines = ["[ZoneTransfer]", "ZoneId=3"]
     if referrer:
