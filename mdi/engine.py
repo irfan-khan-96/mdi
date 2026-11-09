@@ -156,9 +156,12 @@ def filename_from_response(headers, url: str) -> str:
     cd = headers.get("Content-Disposition", "") or ""
     m = re.search(r"filename\*\s*=\s*([^']*)'[^']*'([^;]+)", cd, re.I)
     if m:
-        name = urllib.parse.unquote(m.group(2).strip().strip('"'),
-                                    encoding=m.group(1) or "utf-8",
-                                    errors="replace")
+        raw = m.group(2).strip().strip('"')
+        try:
+            name = urllib.parse.unquote(raw, encoding=m.group(1) or "utf-8",
+                                        errors="replace")
+        except LookupError:            # charset Python doesn't know
+            name = urllib.parse.unquote(raw, errors="replace")
         return sanitize_filename(name)
     m = re.search(r'filename\s*=\s*"([^"]+)"', cd, re.I) or \
         re.search(r"filename\s*=\s*([^;]+)", cd, re.I)
@@ -275,6 +278,8 @@ class Download:
         self._fatal: Exception | None = None
         self._samples: deque = deque(maxlen=12)
         self._req_headers: dict = {}
+        self._resume_after_stop = False
+        self.media_stem: str | None = None   # yt-dlp temp-file prefix
         self.speed = 0.0
 
     # ---- public API ---------------------------------------------------
@@ -294,7 +299,7 @@ class Download:
     def eta(self) -> float | None:
         if not self.size or self.speed <= 0:
             return None
-        return (self.size - self.downloaded) / self.speed
+        return max(0.0, (self.size - self.downloaded) / self.speed)
 
     @property
     def is_running(self) -> bool:
@@ -312,10 +317,22 @@ class Download:
         self._thread.start()
 
     def pause(self) -> None:
+        self._resume_after_stop = False
         if self.is_running:
             self._halt.set()
         elif self.status in (QUEUED, ERROR):
             self.status = PAUSED
+
+    def resume(self) -> None:
+        """Queue it again. If it is still winding down from a pause, it
+        re-queues itself the moment it has stopped."""
+        if self.status == COMPLETED:
+            return
+        if self.is_running:
+            if self._halt.is_set():
+                self._resume_after_stop = True
+        else:
+            self.status = QUEUED
 
     def join(self, timeout: float | None = None) -> None:
         if self._thread:
@@ -337,6 +354,7 @@ class Download:
             "etag": self.etag, "last_modified": self.last_modified,
             "segments": segs, "status": self.status, "error": self.error,
             "added": self.added, "kind": self.kind,
+            "media_stem": self.media_stem,
         }
 
     @classmethod
@@ -344,7 +362,7 @@ class Download:
         dl = cls(d["url"], d["save_dir"], d.get("connections", 8),
                  d.get("headers"), d.get("filename"), d["id"])
         for k in ("path", "size", "resumable", "etag", "last_modified",
-                  "status", "error", "added", "kind"):
+                  "status", "error", "added", "kind", "media_stem"):
             if k in d:
                 setattr(dl, k, d[k])
         dl.segments = [Segment(*s) for s in d.get("segments", [])]
@@ -379,14 +397,22 @@ class Download:
                 raise FatalError("all connections failed; resume to retry")
         except Exception as e:  # noqa: BLE001 - surface everything in UI
             self.status = ERROR
-            self.error = str(e) or e.__class__.__name__
-            if not isinstance(e, FatalError):
+            if isinstance(e, urllib.error.HTTPError):
+                self.error = f"HTTP {e.code} {e.reason}"
+            else:
+                self.error = str(e) or e.__class__.__name__
+            if not isinstance(e, (FatalError, OSError,
+                                  http.client.HTTPException)):
                 log.exception("unexpected error for %s", redact(self.url))
         finally:
             self.speed = 0.0
             with self._lock:
                 for s in self.segments:
                     s.active = False
+            if self._resume_after_stop:
+                self._resume_after_stop = False
+                if self.status == PAUSED:
+                    self.status = QUEUED
 
     def _probe_with_retry(self) -> ProbeResult:
         """The first request gets the same patience as the rest: dropped

@@ -26,6 +26,24 @@ DEFAULT_SETTINGS = {
     "max_parallel": 3,
 }
 MAX_INBOX_FILE = 1 << 20
+STOP_WAIT = 40    # seconds; longer than the engine's socket timeout
+
+
+def partial_files(d: Download) -> list[str]:
+    """Half-finished files a download leaves on disk."""
+    if d.kind == "media":
+        from . import media
+        return media.leftovers(d.media_stem)
+    return [d.part_path] if d.part_path else []
+
+
+def _delete(paths) -> None:
+    for p in paths:
+        if p and os.path.isfile(p):
+            try:
+                os.remove(p)
+            except OSError as e:
+                log.warning("couldn't delete %s: %s", p, e)
 
 
 def _clamp(v, lo, hi, default):
@@ -69,8 +87,7 @@ class Manager:
         return d
 
     def resume(self, d: Download) -> None:
-        if d.status != COMPLETED and not d.is_running:
-            d.status = QUEUED
+        d.resume()
 
     def pause(self, d: Download) -> None:
         d.pause()
@@ -82,12 +99,9 @@ class Manager:
             if d in self.downloads:
                 self.downloads.remove(d)
         if delete_files:
-            for p in (d.part_path, d.path if d.status == COMPLETED else None):
-                if p and os.path.isfile(p):
-                    try:
-                        os.remove(p)
-                    except OSError:
-                        pass
+            _delete(partial_files(d))
+            if d.status == COMPLETED:
+                _delete([d.path])
         self.save()
 
     # ---- undoable removal ----------------------------------------------
@@ -117,23 +131,27 @@ class Manager:
                     self.downloads.insert(min(index, len(self.downloads)), d)
         for _, d, was_active in taken:
             if was_active:
-                d.join(timeout=5)      # let the paused thread wind down
-                self.resume(d)
+                self.resume(d)   # re-queues itself once it has stopped
         if taken:
             log.info("restored %d download(s)", len(taken))
             self.save()
 
-    def discard(self, taken: list[tuple[int, Download, bool]]) -> None:
+    def discard(self, taken: list[tuple[int, Download, bool]],
+                delete_finished: bool = False,
+                wait: float = STOP_WAIT) -> None:
+        """Make a removal final. May wait for connections to stop, so call
+        it off the UI thread. ``delete_finished`` also deletes completed
+        files (Shift+Delete)."""
+        deadline = time.time() + wait
         for _, d, _ in taken:
-            if d.status == COMPLETED or d.kind != "file" or d in self.downloads:
+            if d in self.downloads:          # was restored meanwhile
                 continue
-            d.join(timeout=5)
-            p = d.part_path
-            if p and os.path.isfile(p):
-                try:
-                    os.remove(p)
-                except OSError:
-                    pass
+            d.join(timeout=max(0.0, deadline - time.time()))
+            if d.status == COMPLETED:
+                if delete_finished:
+                    _delete([d.path])
+            else:
+                _delete(partial_files(d))
 
     def find(self, url: str) -> Download | None:
         with self._lock:
@@ -161,7 +179,7 @@ class Manager:
                 self.add(rec.get("url"), unprotect(rec.get("headers"), {}),
                          rec.get("filename"), source="browser")
                 added += 1
-            except (OSError, ValueError, AttributeError) as e:
+            except Exception as e:  # noqa: BLE001 - untrusted input
                 log.warning("rejected browser request %s: %s", name, e)
             finally:
                 try:
@@ -172,31 +190,35 @@ class Manager:
 
     # ---- scheduler ------------------------------------------------------
     def _loop(self) -> None:
-        last_save = 0.0
-        seen: dict[str, str] = {}
+        state = {"last_save": 0.0, "seen": {}}
         while not self._stop.wait(0.5):
-            with self._lock:
-                running = sum(1 for d in self.downloads if d.is_running)
-                for d in self.downloads:
-                    if running >= self.settings["max_parallel"]:
-                        break
-                    if d.status == QUEUED and not d.is_running:
-                        d.start()
-                        running += 1
-                busy = any(d.status == DOWNLOADING for d in self.downloads)
-                for d in self.downloads:          # log status changes
-                    if seen.get(d.id) != d.status:
-                        if d.status == COMPLETED and d.id in seen:
-                            log.info("completed %s -> %s", redact(d.url),
-                                     d.path)
-                        elif d.status == "error":
-                            log.warning("failed %s: %s", redact(d.url),
-                                        d.error)
-                        seen[d.id] = d.status
-            if busy or time.time() - last_save > 10:
-                if time.time() - last_save > 2:
-                    self.save()
-                    last_save = time.time()
+            try:
+                self._tick(state)
+            except Exception:  # noqa: BLE001 - never let the queue die
+                log.exception("scheduler error")
+
+    def _tick(self, state: dict) -> None:
+        seen = state["seen"]
+        with self._lock:
+            running = sum(1 for d in self.downloads if d.is_running)
+            for d in self.downloads:
+                if running >= self.settings["max_parallel"]:
+                    break
+                if d.status == QUEUED and not d.is_running:
+                    d.start()
+                    running += 1
+            busy = any(d.status == DOWNLOADING for d in self.downloads)
+            for d in self.downloads:          # log status changes
+                if seen.get(d.id) != d.status:
+                    if d.status == COMPLETED and d.id in seen:
+                        log.info("completed %s -> %s", redact(d.url), d.path)
+                    elif d.status == "error":
+                        log.warning("failed %s: %s", redact(d.url), d.error)
+                    seen[d.id] = d.status
+        since = time.time() - state["last_save"]
+        if since > 10 or (busy and since > 2):
+            self.save()                # a failed save is retried next time
+            state["last_save"] = time.time()
 
     def shutdown(self) -> None:
         self._stop.set()
@@ -204,9 +226,10 @@ class Manager:
             running = [d for d in self.downloads if d.is_running]
         for d in running:
             d.pause()
+        deadline = time.time() + 5
         for d in running:
-            d.join(timeout=10)
-            if d.status == PAUSED:
+            d.join(timeout=max(0.0, deadline - time.time()))
+            if d.status in (PAUSED, DOWNLOADING):
                 d.status = QUEUED   # pick up again on next launch
         self.save()
 
@@ -215,14 +238,22 @@ class Manager:
         try:
             with open(self.store_path, encoding="utf-8") as f:
                 data = json.load(f)
-        except (OSError, ValueError):
+        except OSError:
+            return                              # first run
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            self._set_aside()
             return
-        s = data.get("settings", {}) if isinstance(data, dict) else {}
+        s = data.get("settings")
+        s = s if isinstance(s, dict) else {}
+        records = data.get("downloads")
+        records = records if isinstance(records, list) else []
         if isinstance(s.get("download_dir"), str) and s["download_dir"]:
             self.settings["download_dir"] = s["download_dir"]
         self.settings["connections"] = _clamp(s.get("connections"), 1, 32, 8)
         self.settings["max_parallel"] = _clamp(s.get("max_parallel"), 1, 10, 3)
-        for rec in data.get("downloads", []):
+        for rec in records:
             try:
                 rec = dict(rec)
                 check_url(rec["url"])
@@ -232,7 +263,25 @@ class Manager:
             except (KeyError, TypeError, ValueError) as e:
                 log.warning("skipped corrupt saved download: %s", e)
 
-    def save(self) -> None:
+    def _set_aside(self) -> None:
+        """Keep an unreadable state file for recovery instead of letting
+        the next save overwrite it."""
+        bad = self.store_path + ".damaged"
+        try:
+            os.replace(self.store_path, bad)
+            log.warning("state file was unreadable; kept as %s", bad)
+        except OSError:
+            pass
+
+    def save(self) -> bool:
+        try:
+            self._save()
+            return True
+        except OSError as e:
+            log.warning("couldn't save the download list: %s", e)
+            return False
+
+    def _save(self) -> None:
         with self._lock:  # also serialises concurrent writers
             records = []
             for d in self.downloads:
