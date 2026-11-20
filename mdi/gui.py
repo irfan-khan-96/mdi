@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from .advice import ACTION_LABELS, explain
-from . import addons, media, updater
+from . import addons, media, selfupdate, updater
 from .engine import (COMPLETED, DOWNLOADING, ERROR, QUEUED, Download,
                      sanitize_filename)
 from .manager import Manager, partial_files
@@ -387,6 +387,12 @@ class App:
                                     cursor="hand2")
         self.addon_link.bind("<Button-1>", lambda e: self.get_addons())
         self._addon_busy = False
+        # "MDI 1.4.0 is available · Update" - only when there is one.
+        self.update_link = ttk.Label(foot, padding=(8, 2),
+                                     foreground="#1a5fb4", cursor="hand2")
+        self.update_link.bind("<Button-1>", lambda e: self.update_app())
+        self._update_busy = False
+        self._update_shown: str | None = None
 
         root.bind("<Control-v>", lambda e: self.add())
         root.bind("<Control-n>", lambda e: self.add())
@@ -624,6 +630,63 @@ class App:
         self.manager.resume(d)
         self.manager.save()
 
+    # ---- MDI's own updates (selfupdate.py) -------------------------------
+    def show_update_link(self):
+        v = selfupdate.available() if selfupdate.enabled() else None
+        self._update_shown = v
+        if self._update_busy:
+            return
+        if v:
+            self.update_link.config(text=f"MDI {v} is available · Update")
+            self.update_link.pack(side="right")
+        else:
+            self.update_link.pack_forget()
+
+    def update_app(self):
+        """Download and verify the new installer, then save everything,
+        start the installer and close. It reopens MDI when done."""
+        version = selfupdate.available()
+        if self._update_busy or not version:
+            return
+        if not messagebox.askokcancel(
+                "Update MDI", update_question(version), parent=self.root):
+            return
+        self._update_busy = True
+        state: dict = {"pct": 0}
+
+        def work():
+            try:
+                state["path"] = selfupdate.download(
+                    version, lambda pct: state.update(pct=pct))
+            except Exception as e:  # noqa: BLE001 - shown to the user
+                log.warning("MDI update download failed: %s", e)
+                state["err"] = str(e)
+
+        def wait():
+            if "path" not in state and "err" not in state:
+                self.update_link.config(
+                    text=f"Downloading MDI {version} · {state['pct']}%")
+                return self.root.after(250, wait)
+            self._update_busy = False
+            if "err" in state:
+                self.show_update_link()
+                messagebox.showerror(
+                    "MDI", "Couldn't download the update: " + state["err"] +
+                    "\n\nYou can keep using this version and try again "
+                    "later.", parent=self.root)
+                return
+            self.update_link.config(text=f"Installing MDI {version}…")
+            self.root.update_idletasks()
+            self._shutdown()
+            try:
+                selfupdate.launch(state["path"])
+            except OSError as e:
+                log.warning("couldn't start the MDI installer: %s", e)
+            self.root.destroy()
+
+        threading.Thread(target=work, daemon=True, name="mdi-update").start()
+        wait()
+
     # ---- optional helpers (addons.py) -----------------------------------
     def show_addon_link(self):
         need = addons.missing() if media.available() else []
@@ -716,6 +779,11 @@ class App:
         if active and not messagebox.askokcancel(
                 "Close MDI", close_text(active), parent=self.root):
             return
+        self._shutdown()
+        self.root.destroy()
+
+    def _shutdown(self):
+        """Save everything and stop downloads (they resume next time)."""
         self.status.config(text="Saving state…")
         self.root.update_idletasks()
         taken, self._undo = self._undo, []
@@ -723,7 +791,6 @@ class App:
         self.manager.discard(taken, wait=1)   # removal is final on exit
         self.taskbar.clear()
         self.notifier.close()
-        self.root.destroy()
 
     # ---- periodic refresh -------------------------------------------------
     def _row(self, d: Download) -> tuple:
@@ -769,6 +836,9 @@ class App:
         self._update_taskbar()
         self._notify_finished()
         self._handle_clicks()
+        if selfupdate.latest_known != self._update_shown and \
+                selfupdate.latest_known:          # found by the weekly check
+            self.show_update_link()
 
     def _refresh_rows(self) -> float:
         """Sync the list with the manager; returns total speed."""
@@ -983,6 +1053,10 @@ def main(argv: list[str] | None = None) -> None:
     app = App(root, manager)
     app.bridge_note = status_notes()
     app.show_addon_link()
+    if selfupdate.enabled():        # weekly; see selfupdate.py
+        selfupdate.cleanup()
+        app.show_update_link()
+        selfupdate.check_in_background()
     if media.available():           # weekly, silent; see updater.py
         updater.update_in_background(media.version_text())
         root.after(1500, media.warm_up)   # for the Add dialog's quality box
@@ -997,6 +1071,14 @@ def main(argv: list[str] | None = None) -> None:
 
 
 JS_ENGINE_STEP = "a small JavaScript engine (MDI can download it)"
+
+
+def update_question(version: str) -> str:
+    return (f"MDI will download version {version} (about 20 MB) from its "
+            "GitHub release and check it against the release's SHA-256 "
+            "checksums.\n\nThen MDI saves your download list, closes, "
+            "installs the update and opens again by itself. Running "
+            "downloads pause and continue afterwards. Continue?")
 
 
 def addon_link_text(need: list[str]) -> str:

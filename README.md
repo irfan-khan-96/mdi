@@ -15,6 +15,8 @@ Download `MDI-Setup-<version>.exe` from the [latest release](https://github.com/
 
 It installs for your user only, so there's no admin prompt. It puts MDI in `%LOCALAPPDATA%\Programs\MDI Downloader`, adds a Start Menu shortcut (a desktop shortcut is optional), and you uninstall it from **Settings → Apps**. Python and yt-dlp are bundled, and yt-dlp keeps itself up to date (see below). ffmpeg isn't, because it's large: click **Get HD video support** in the status bar and MDI downloads it for you (see below). Your download list and settings in `%APPDATA%\MDI` are kept when you uninstall.
 
+**MDI updates itself.** Once a week the installed app asks GitHub for its latest release. If there's a newer one, the status bar shows **MDI x.y.z is available · Update**. Click it and confirm, and MDI downloads that release's installer and checks it twice: against the SHA-256 digest GitHub lists for the file, and against the release's `SHA256SUMS.txt`. It then saves your download list, closes, and runs the installer silently. The installer replaces the app and opens MDI again; running downloads continue where they stopped. Nothing happens without your click, and a source checkout (`python -m mdi`) never updates itself. See [mdi/selfupdate.py](mdi/selfupdate.py).
+
 To build the installer yourself (needs [Inno Setup 6](https://jrsoftware.org/isinfo.php); without it you still get `dist/MDI/MDI.exe`):
 
 ```bash
@@ -126,7 +128,7 @@ The design was audited against the OWASP Top 10 (2021). Each fix has a regressio
 | **A05 Security misconfiguration** | Unsafe defaults | No ports are open, isolated-mode Python (`-I`) runs the browser host, extension CSP is `script-src 'self'`, and settings loaded from disk are range-checked. |
 | **A06 Vulnerable components** | An old yt-dlp | MDI only passes cookies to yt-dlp 2023.07.06 or later (older versions leaked them to other hosts, CVE-2023-35934). yt-dlp updates itself weekly (see above). MDI itself uses only the Python standard library. |
 | **A07 Authentication failures** | Something pretending to be the app or the extension | The browser authenticates both sides of native messaging: the registered host path and the allowed extension ID. |
-| **A08 Integrity failures** | Downloaded programs skipping Windows protections | Every finished file gets the **Mark-of-the-Web** (`Zone.Identifier`, Zone 3), like a browser download, so SmartScreen and Office Protected View still apply. yt-dlp updates come only from yt-dlp's official GitHub releases over HTTPS and must match the SHA-256 checksum published with that release, contain `yt_dlp`, and carry the expected version, or they are discarded. The one-click helpers (ffmpeg, Deno) are checked the same way against GitHub's SHA-256 digest, and Deno against a hash pinned in MDI. (The checksum file is fetched from the same place, so this proves the download is intact, not who made it; yt-dlp's GPG signature isn't checked, because Python has no built-in GPG.) |
+| **A08 Integrity failures** | Downloaded programs skipping Windows protections | Every finished file gets the **Mark-of-the-Web** (`Zone.Identifier`, Zone 3), like a browser download, so SmartScreen and Office Protected View still apply. yt-dlp updates come only from yt-dlp's official GitHub releases over HTTPS and must match the SHA-256 checksum published with that release, contain `yt_dlp`, and carry the expected version, or they are discarded. MDI's own updates must match both GitHub's SHA-256 digest and the release's `SHA256SUMS.txt`, and come only from this project's release. The one-click helpers (ffmpeg, Deno) are checked the same way against GitHub's SHA-256 digest, and Deno against a hash pinned in MDI. (The checksum file is fetched from the same place, so this proves the download is intact, not who made it; yt-dlp's GPG signature isn't checked, because Python has no built-in GPG.) |
 | **A09 Logging and monitoring** | No record of what happened | `%APPDATA%\MDI\mdi.log` (rotated, 1 MB × 3) records adds, completions, failures and rejected requests. URLs are logged without query strings or credentials, and cookies are never logged. |
 | **A10 SSRF** | A download redirected to `file://` or `ftp://`, or downgraded to HTTP | Redirects are only followed to `http(s)`, and never from HTTPS down to HTTP. The extension also withholds `SameSite=Strict` cookies on downloads started from another site, matching what the browser would send. |
 
@@ -137,7 +139,7 @@ The design was audited against the OWASP Top 10 (2021). Each fix has a regressio
 
 ## Size and tests
 
-**Result:** about 3,700 lines of Python (comments included) across 13 modules, plus a ~115-line extension and 129 tests. The tests cover:
+**Result:** about 3,950 lines of Python (comments included) across 14 modules, plus a ~115-line extension and 141 tests. The tests cover:
 - multi-connection downloads checked byte-for-byte
 - dynamic splitting of a slow tail
 - pause → restart → resume
