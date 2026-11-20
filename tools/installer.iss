@@ -50,6 +50,15 @@ Root: HKCU; Subkey: "Software\Classes\AppUserModelId\MDI.Downloader"; ValueType:
 
 [Run]
 Filename: "{app}\MDI.exe"; Description: "Start MDI Downloader"; Flags: nowait postinstall skipifsilent
+; MDI's self-update runs this installer silently with /RELAUNCH=1: open
+; MDI again once the new files are in place.
+Filename: "{app}\MDI.exe"; Flags: nowait; Check: ShouldRelaunch
 
-; Your download list and settings (%APPDATA%\MDI) are kept on uninstall,
-; like most apps do, so reinstalling picks up where you left off.
+[Code]
+function ShouldRelaunch: Boolean;
+begin
+  Result := WizardSilent and (ExpandConstant('{param:RELAUNCH|0}') = '1');
+end;
+
+// Your download list and settings (%APPDATA%\MDI) are kept on uninstall,
+// like most apps do, so reinstalling picks up where you left off.
