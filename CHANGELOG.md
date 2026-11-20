@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.0
 
 ### New
 - **MDI updates itself.** The installed app checks GitHub weekly for a newer release and shows "MDI x.y.z is available · Update" in the status bar. One click (after confirming) downloads the installer, verifies it against GitHub's SHA-256 digest and the release's SHA256SUMS.txt, saves your list, installs silently and reopens MDI. Running downloads continue afterwards.
