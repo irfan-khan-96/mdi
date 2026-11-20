@@ -36,6 +36,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 
 [Files]
 Source: "..\dist\MDI\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
+Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 
 [Icons]
 ; AppUserModelID matches the app's own, so a pinned taskbar icon, the

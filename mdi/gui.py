@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from .advice import ACTION_LABELS, explain
-from . import media
+from . import media, updater
 from .engine import (COMPLETED, DOWNLOADING, ERROR, QUEUED, Download,
                      sanitize_filename)
 from .manager import Manager, partial_files
@@ -90,14 +90,26 @@ class AddDialog(tk.Toplevel):
         self.whole_box = ttk.Checkbutton(
             f, variable=self.whole,
             text="Download the whole playlist (each video in its own row)")
-        self.whole_row = len(rows)
+        self.whole_row = len(rows) + 1
+
+        # Only appears for video-site links.
+        self.labels = dict(media.QUALITIES)
+        self.quality = tk.StringVar(
+            value=self.labels.get(s.get("video_quality"), "Best"))
+        self.quality_label = ttk.Label(f, text="Quality")
+        self.quality_box = ttk.Combobox(
+            f, textvariable=self.quality, state="readonly", width=12,
+            values=[label for _, label in media.QUALITIES])
+        self.quality_row = len(rows)
+        self._video_check = None
+
         self.note = ttk.Label(f, foreground="gray")
-        self.note.grid(row=len(rows) + 1, column=0, columnspan=3, sticky="w")
-        self.url.trace_add("write", lambda *a: self._show_playlist_option())
-        self._show_playlist_option()
+        self.note.grid(row=len(rows) + 2, column=0, columnspan=3, sticky="w")
+        self.url.trace_add("write", lambda *a: self._show_options())
+        self._show_options()
 
         b = ttk.Frame(f)
-        b.grid(row=len(rows) + 2, column=0, columnspan=3, sticky="e",
+        b.grid(row=len(rows) + 3, column=0, columnspan=3, sticky="e",
                pady=(10, 0))
         self.start_btn = ttk.Button(b, text="Start", command=self._ok)
         self.start_btn.pack(side="left", padx=4)
@@ -112,6 +124,38 @@ class AddDialog(tk.Toplevel):
         d = filedialog.askdirectory(initialdir=self.dir.get(), parent=self)
         if d:
             self.dir.set(d)
+
+    def _show_options(self):
+        self._show_playlist_option()
+        self._show_quality_option()
+
+    def _show_quality_option(self):
+        """Show the quality choice for video links. The site check may
+        still be loading; if so, look again shortly."""
+        if self._video_check is not None:
+            self.after_cancel(self._video_check)
+            self._video_check = None
+        video = media.is_video_site(self.url.get().strip())
+        if video is None:
+            self._video_check = self.after(200, self._show_quality_option)
+            return
+        if video:
+            self.quality_label.grid(row=self.quality_row, column=0,
+                                    sticky="w", pady=3)
+            self.quality_box.grid(row=self.quality_row, column=1,
+                                  sticky="w", pady=3)
+        else:
+            self.quality_label.grid_remove()
+            self.quality_box.grid_remove()
+
+    def chosen_quality(self) -> str | None:
+        """The quality key if the option is showing (and remember it)."""
+        if not self.quality_box.winfo_ismapped():
+            return None
+        key = next((k for k, v in self.labels.items()
+                    if v == self.quality.get()), "best")
+        self.app.manager.settings["video_quality"] = key
+        return key
 
     def _show_playlist_option(self):
         if media.available() and media.looks_like_playlist(self.url.get()):
@@ -128,10 +172,11 @@ class AddDialog(tk.Toplevel):
             conns = int(self.conns.get())
         except (tk.TclError, ValueError):
             conns = self.app.manager.settings["connections"]
+        quality = self.chosen_quality()
         if self.whole.get():
-            return self._add_playlist(conns)
+            return self._add_playlist(conns, quality)
         try:
-            self.app.manager.add(self.url.get(),
+            self.app.manager.add(self.url.get(), quality=quality,
                                  filename=self.name.get().strip() or None,
                                  save_dir=self.dir.get().strip() or None,
                                  connections=conns)
@@ -141,7 +186,7 @@ class AddDialog(tk.Toplevel):
             return
         self.destroy()
 
-    def _add_playlist(self, conns: int):
+    def _add_playlist(self, conns: int, quality: str | None = None):
         """Read the list in the background (a second or two), then add one
         row per video inside a folder named after the playlist."""
         url, base = self.url.get().strip(), self.dir.get().strip() or None
@@ -173,7 +218,7 @@ class AddDialog(tk.Toplevel):
                 self.note.config(text="That playlist has no videos MDI can "
                                       "download.")
                 return
-            self.app.add_many(urls, base, title, conns)
+            self.app.add_many(urls, base, title, conns, quality)
             self.destroy()
 
         threading.Thread(target=work, daemon=True).start()
@@ -376,7 +421,7 @@ class App:
         AddDialog(self, url or self._clipboard_url())
 
     def add_many(self, urls: list[str], base: str | None, folder: str,
-                 conns: int) -> int:
+                 conns: int, quality: str | None = None) -> int:
         """Queue several links into ``base/<folder>``; skips ones already
         in the list. Returns how many were added."""
         save_dir = os.path.join(base or self.manager.settings["download_dir"],
@@ -387,7 +432,7 @@ class App:
                 continue
             try:
                 self.manager.add(u, save_dir=save_dir, connections=conns,
-                                 source="playlist")
+                                 quality=quality, source="playlist")
                 added += 1
             except ValueError:
                 pass
@@ -538,9 +583,11 @@ class App:
             d.save_dir, d.path = folder, None
         elif action == "restart":
             drop_partial()
-        elif action in ("video_setup", "update_ytdlp"):
-            cmd = "pip install yt-dlp" if action == "video_setup" \
-                else "pip install -U yt-dlp"
+        elif action == "update_ytdlp":
+            self._update_ytdlp_now()
+            return
+        elif action == "video_setup":
+            cmd = "pip install yt-dlp"
             self.root.clipboard_clear()
             self.root.clipboard_append(cmd)
             messagebox.showinfo(
@@ -568,6 +615,39 @@ class App:
             return
         self.manager.resume(d)
         self.manager.save()
+
+    def _update_ytdlp_now(self):
+        """The "Update now" fix: fetch the latest yt-dlp in the background."""
+        self.status.config(text="Updating yt-dlp…")
+        result: dict = {}
+
+        def work():
+            try:
+                result["ok"] = updater.update(media.version_text(), force=True)
+            except Exception as e:  # noqa: BLE001 - shown to the user
+                result["err"] = str(e)
+
+        def wait():
+            if not result:
+                return self.root.after(200, wait)
+            if "err" in result:
+                messagebox.showerror(
+                    "MDI", "Couldn't update yt-dlp: " + result["err"] +
+                    "\n\nCheck your internet connection and try again.",
+                    parent=self.root)
+            elif result["ok"]:
+                messagebox.showinfo(
+                    "MDI", f"yt-dlp updated to {result['ok']}.\n\nClose and "
+                           "reopen MDI to use it, then try the download "
+                           "again.", parent=self.root)
+            else:
+                messagebox.showinfo(
+                    "MDI", "yt-dlp is already the latest version. The site "
+                           "may have changed in a way yt-dlp doesn't support "
+                           "yet; try again in a few days.", parent=self.root)
+
+        threading.Thread(target=work, daemon=True).start()
+        wait()
 
     def quit(self):
         active = sum(1 for d in self.manager.downloads
@@ -841,6 +921,9 @@ def main(argv: list[str] | None = None) -> None:
     set_icon(root)
     app = App(root, manager)
     app.bridge_note = status_notes()
+    if media.available():           # weekly, silent; see updater.py
+        updater.update_in_background(media.version_text())
+        root.after(1500, media.warm_up)   # for the Add dialog's quality box
 
     for url in argv:  # `python -m mdi <url>` adds it straight away
         try:
@@ -867,15 +950,15 @@ def js_setup_steps() -> list[str]:
 
 def status_notes() -> str:
     from . import media
-    frozen = getattr(sys, "frozen", False)   # running as MDI.exe
+
     notes = []
     if not media.available():
         notes.append("video sites OFF (pip install yt-dlp)")
     else:
         age = media.age_days()
-        if age is not None and age > 90:
-            fix = "install a newer MDI" if frozen else "pip install -U yt-dlp"
-            notes.append(f"yt-dlp is {age} days old ({fix})")
+        if age is not None and age > 60 and updater.load_state().get("error"):
+            notes.append(f"yt-dlp is {age} days old and couldn't update "
+                         "itself (see mdi.log)")
         if not media.challenge_ready():
             notes.append("some YouTube videos won't download "
                          "(double-click a failed one for the fix)")

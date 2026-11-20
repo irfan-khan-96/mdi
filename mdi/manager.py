@@ -24,7 +24,9 @@ DEFAULT_SETTINGS = {
     "download_dir": os.path.join(os.path.expanduser("~"), "Downloads"),
     "connections": 8,
     "max_parallel": 3,
+    "video_quality": "best",
 }
+QUALITY_KEYS = ("best", "1080", "720", "480", "audio")
 MAX_INBOX_FILE = 1 << 20
 STOP_WAIT = 40    # seconds; longer than the engine's socket timeout
 
@@ -72,12 +74,15 @@ class Manager:
     def add(self, url: str, headers: dict | None = None,
             filename: str | None = None, save_dir: str | None = None,
             connections: int | None = None, start: bool = True,
+            quality: str | None = None,
             source: str = "user") -> Download:
         """Raises ValueError for anything that isn't a plain http(s) URL."""
         url = check_url(url)
         d = Download(url, save_dir or self.settings["download_dir"],
                      connections or self.settings["connections"],
                      clean_headers(headers), filename)
+        q = quality or self.settings["video_quality"]
+        d.quality = q if q in QUALITY_KEYS else "best"
         d.status = QUEUED if start else PAUSED
         with self._lock:
             self.downloads.append(d)
@@ -253,6 +258,8 @@ class Manager:
             self.settings["download_dir"] = s["download_dir"]
         self.settings["connections"] = _clamp(s.get("connections"), 1, 32, 8)
         self.settings["max_parallel"] = _clamp(s.get("max_parallel"), 1, 10, 3)
+        if s.get("video_quality") in QUALITY_KEYS:
+            self.settings["video_quality"] = s["video_quality"]
         for rec in records:
             try:
                 rec = dict(rec)

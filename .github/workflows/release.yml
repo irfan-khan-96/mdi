@@ -1,0 +1,57 @@
+name: Release
+
+# Push a tag like v1.2.0 to test, build and publish the installer.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write    # to create the GitHub Release
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Check the tag matches the app version
+        shell: pwsh
+        run: |
+          $v = python -c "import mdi; print(mdi.__version__)"
+          if ("v$v" -ne $env:TAG) { throw "Tag $env:TAG doesn't match mdi.__version__ ($v)" }
+
+      - name: Install build dependencies
+        run: python -m pip install --disable-pip-version-check pyinstaller yt-dlp yt-dlp-ejs certifi
+
+      - name: Run tests
+        run: python -m unittest discover -s tests -t .
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build MDI.exe and the installer
+        run: python tools/build.py
+
+      - name: Write checksum and release notes
+        shell: pwsh
+        run: |
+          $f = Get-Item dist/MDI-Setup-*.exe
+          $h = (Get-FileHash $f.FullName -Algorithm SHA256).Hash.ToLower()
+          "$h  $($f.Name)" | Out-File -Encoding ascii dist/SHA256SUMS.txt
+          python tools/release_notes.py $env:TAG.TrimStart("v") | Out-File -Encoding utf8 dist/notes.md
+
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $f = (Get-Item dist/MDI-Setup-*.exe).FullName
+          gh release create $env:TAG $f dist/SHA256SUMS.txt `
+            --title "MDI Downloader $env:TAG" --notes-file dist/notes.md
