@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.2
+
+- **Fixed:** after updating itself (or when started from the installer's last page), MDI couldn't find an ffmpeg installed through WinGet and offered to download it again. The installer now starts MDI through Explorer, so it runs as a normal program. Updating to this version fixes it.
+
 ## 1.4.1
 
 - No visible changes. The window code is split into smaller modules (dialogs, flows, wording), and four copies of the "work in the background, then update the window" code are now one shared helper.
