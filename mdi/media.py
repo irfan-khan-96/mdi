@@ -14,7 +14,9 @@ from __future__ import annotations
 import os
 import shutil
 
-from . import updater
+from . import addons, updater
+
+addons.add_to_path()      # ffmpeg / QuickJS that MDI downloaded, if any
 
 
 def _import_yt_dlp():
@@ -85,18 +87,19 @@ def has_ffmpeg() -> bool:
 # YouTube serves some videos (e.g. "made for kids") only to clients that
 # solve a JavaScript challenge. yt-dlp does that with the yt-dlp-ejs
 # scripts run in a JS runtime - but only enables Deno by default. Enable
-# whichever of them is installed.
-_JS_RUNTIMES = ("deno", "node", "bun")
+# whichever of them is installed (QuickJS's program is called "qjs").
+_JS_RUNTIMES = addons.JS_RUNTIMES
 
 
 def js_runtimes() -> dict:
-    found = {name: {} for name in _JS_RUNTIMES if shutil.which(name)}
+    found = {name: {} for name, exe in _JS_RUNTIMES.items()
+             if shutil.which(exe)}
     return found or {"deno": {}}
 
 
 def challenge_ready() -> bool:
     """True if YouTube's JavaScript challenge can be solved."""
-    if not any(shutil.which(n) for n in _JS_RUNTIMES):
+    if not addons.has_js_runtime():
         return False
     try:
         import yt_dlp_ejs  # noqa: F401
@@ -106,7 +109,7 @@ def challenge_ready() -> bool:
 
 
 NEEDS_JS = ("YouTube asked for a JavaScript check that MDI couldn't solve "
-            "(needs yt-dlp-ejs and Node.js or Deno)")
+            "(needs yt-dlp-ejs and a JavaScript engine)")
 
 
 def _explain_failure(msg: str) -> str:
@@ -234,7 +237,8 @@ _FORMAT_PART = None
 
 def leftovers(stem: str | None) -> list[str]:
     """yt-dlp's temporary files for one video: ``<stem>.f399.mp4.part``,
-    ``<stem>.f251.webm`` (waiting to be merged), ``.ytdl``, fragments.
+    ``<stem>.f251.webm`` (waiting to be merged), ``<stem>.temp.mp4`` (being
+    merged), ``.ytdl``, fragments.
     ``stem`` is the output path without its extension. The finished file
     (``<stem>.mp4``) is never included."""
     import re
@@ -254,7 +258,7 @@ def leftovers(stem: str | None) -> list[str]:
             continue
         rest = n[len(prefix):]
         if rest.endswith((".part", ".ytdl")) or ".part-Frag" in rest or \
-                _FORMAT_PART.match(rest):
+                rest.startswith(".temp.") or _FORMAT_PART.match(rest):
             found.append(os.path.join(folder, n))
     return found
 

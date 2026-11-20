@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from .advice import ACTION_LABELS, explain
-from . import media, updater
+from . import addons, media, updater
 from .engine import (COMPLETED, DOWNLOADING, ERROR, QUEUED, Download,
                      sanitize_filename)
 from .manager import Manager, partial_files
@@ -382,6 +382,11 @@ class App:
         self._undo: list = []
         self._undo_timer = None
         self.bridge_note = ""
+        # "Get HD video support" - only while ffmpeg / Deno are missing.
+        self.addon_link = ttk.Label(foot, padding=(8, 2), foreground="#1a5fb4",
+                                    cursor="hand2")
+        self.addon_link.bind("<Button-1>", lambda e: self.get_addons())
+        self._addon_busy = False
 
         root.bind("<Control-v>", lambda e: self.add())
         root.bind("<Control-n>", lambda e: self.add())
@@ -599,6 +604,9 @@ class App:
             if not steps:            # fixed meanwhile (e.g. Node installed)
                 self.manager.resume(d)
                 return
+            if steps == [JS_ENGINE_STEP]:
+                self.get_addons(["deno"], then_retry=d)
+                return
             cmd = next((s for s in steps if s.startswith(("pip", "winget"))),
                        "")
             if cmd:
@@ -615,6 +623,59 @@ class App:
             return
         self.manager.resume(d)
         self.manager.save()
+
+    # ---- optional helpers (addons.py) -----------------------------------
+    def show_addon_link(self):
+        need = addons.missing() if media.available() else []
+        if need and not self._addon_busy:
+            self.addon_link.config(text=addon_link_text(need))
+            self.addon_link.pack(side="right")
+        elif not self._addon_busy:
+            self.addon_link.pack_forget()
+
+    def get_addons(self, keys=None, then_retry: Download | None = None):
+        """Ask, then download ffmpeg / Deno in the background."""
+        keys = keys or addons.missing()
+        if self._addon_busy or not keys:
+            return
+        if not messagebox.askokcancel(
+                "Get HD video support", addon_question(keys),
+                parent=self.root):
+            return
+        self._addon_busy = True
+        state: dict = {"text": "Starting…"}
+
+        def work():
+            try:
+                addons.install(keys, lambda t: state.update(text=t))
+                state["ok"] = True
+            except Exception as e:  # noqa: BLE001 - shown to the user
+                log.warning("couldn't install helpers: %s", e)
+                state["err"] = str(e)
+
+        def wait():
+            self.addon_link.config(text="Getting HD video support · " +
+                                   state["text"])
+            self.addon_link.pack(side="right")
+            if "ok" not in state and "err" not in state:
+                return self.root.after(250, wait)
+            self._addon_busy = False
+            self.bridge_note = status_notes()
+            self.show_addon_link()
+            if "err" in state:
+                messagebox.showerror(
+                    "MDI", "Couldn't download the helpers: " + state["err"] +
+                    "\n\nCheck your internet connection and try again.",
+                    parent=self.root)
+                return
+            messagebox.showinfo(
+                "MDI", "Done. HD video, MP3 audio and protected YouTube "
+                       "videos now work.", parent=self.root)
+            if then_retry is not None and then_retry.status == ERROR:
+                self.manager.resume(then_retry)
+
+        threading.Thread(target=work, daemon=True, name="addons").start()
+        wait()
 
     def _update_ytdlp_now(self):
         """The "Update now" fix: fetch the latest yt-dlp in the background."""
@@ -921,6 +982,7 @@ def main(argv: list[str] | None = None) -> None:
     set_icon(root)
     app = App(root, manager)
     app.bridge_note = status_notes()
+    app.show_addon_link()
     if media.available():           # weekly, silent; see updater.py
         updater.update_in_background(media.version_text())
         root.after(1500, media.warm_up)   # for the Add dialog's quality box
@@ -934,17 +996,33 @@ def main(argv: list[str] | None = None) -> None:
     lock.close()
 
 
+JS_ENGINE_STEP = "a small JavaScript engine (MDI can download it)"
+
+
+def addon_link_text(need: list[str]) -> str:
+    return ("Get HD video support" if "ffmpeg" in need
+            else "Fix some YouTube videos") + " (one click)"
+
+
+def addon_question(keys: list[str]) -> str:
+    lines = "\n".join(f"•  {addons.ADDONS[k].title}, about "
+                      f"{addons.ADDONS[k].size_mb} MB" for k in keys)
+    return (f"MDI will download:\n\n{lines}\n\nfrom the projects' official "
+            "GitHub releases, check each file's SHA-256 checksum, and keep "
+            f"them in:\n{addons.tools_dir()}\n\nNothing is installed "
+            "system-wide. Continue?")
+
+
 def js_setup_steps() -> list[str]:
     """What's missing for YouTube's JavaScript check, as steps."""
-    import shutil
     steps = []
     try:
         import yt_dlp_ejs  # noqa: F401
     except ImportError:
         steps.append("install a newer MDI" if getattr(sys, "frozen", False)
                      else 'pip install -U "yt-dlp[default]"')
-    if not any(shutil.which(n) for n in ("deno", "node", "bun")):
-        steps.append("winget install DenoLand.Deno   (or install Node.js)")
+    if not addons.has_js_runtime():
+        steps.append(JS_ENGINE_STEP)
     return steps
 
 
@@ -959,9 +1037,5 @@ def status_notes() -> str:
         if age is not None and age > 60 and updater.load_state().get("error"):
             notes.append(f"yt-dlp is {age} days old and couldn't update "
                          "itself (see mdi.log)")
-        if not media.challenge_ready():
-            notes.append("some YouTube videos won't download "
-                         "(double-click a failed one for the fix)")
-        if not media.has_ffmpeg():
-            notes.append("no ffmpeg: video limited to single-file formats")
+        # Missing ffmpeg / JS engine: shown as the one-click link instead.
     return "".join(" · " + n for n in notes)

@@ -126,7 +126,8 @@ class CleanupTests(ManagerCase):
         d = self.paused("Clip [abc].mp4", kind="media")
         d.media_stem = os.path.join(self.dir, "Clip [abc]")
         junk = ["Clip [abc].f399-sr.mp4.part", "Clip [abc].f251.webm",
-                "Clip [abc].f251.webm.ytdl", "Clip [abc].mp4.part-Frag3"]
+                "Clip [abc].f251.webm.ytdl", "Clip [abc].mp4.part-Frag3",
+                "Clip [abc].temp.mp4"]
         keep = ["Clip [abc].mp4", "Clip [abc] extra.mp4", "Other.mp4.part"]
         for n in junk + keep:
             open(os.path.join(self.dir, n), "w").close()
