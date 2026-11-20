@@ -13,7 +13,7 @@ python -m unittest discover -s tests -t .                    # tests
 
 Download `MDI-Setup-<version>.exe` from the [latest release](https://github.com/irfan-khan-96/mdi/releases/latest) and run it. Windows SmartScreen may say "Windows protected your PC", because the installer isn't code-signed; click **More info → Run anyway**. Compare the file with the SHA-256 checksum published next to it if you want to be sure it's the real one.
 
-The installer for your user only, so there's no admin prompt. It puts MDI in `%LOCALAPPDATA%\Programs\MDI Downloader`, adds a Start Menu shortcut (a desktop shortcut is optional), and you uninstall it from **Settings → Apps**. Python and yt-dlp are bundled, and yt-dlp keeps itself up to date (see below). ffmpeg isn't (it's large); install it separately for HD video, and MDI finds it on PATH. Your download list and settings in `%APPDATA%\MDI` are kept when you uninstall.
+It installs for your user only, so there's no admin prompt. It puts MDI in `%LOCALAPPDATA%\Programs\MDI Downloader`, adds a Start Menu shortcut (a desktop shortcut is optional), and you uninstall it from **Settings → Apps**. Python and yt-dlp are bundled, and yt-dlp keeps itself up to date (see below). ffmpeg isn't, because it's large: click **Get HD video support** in the status bar and MDI downloads it for you (see below). Your download list and settings in `%APPDATA%\MDI` are kept when you uninstall.
 
 To build the installer yourself (needs [Inno Setup 6](https://jrsoftware.org/isinfo.php); without it you still get `dist/MDI/MDI.exe`):
 
@@ -64,14 +64,22 @@ A video-site link is a web page, not a file. If [yt-dlp](https://github.com/yt-d
 pip install "yt-dlp[default]"    # includes yt-dlp-ejs, see below
 ```
 
-- **For HD:** also put [ffmpeg](https://ffmpeg.org/download.html) on your PATH (`winget install Gyan.FFmpeg`). YouTube sends HD video and audio as separate streams, and ffmpeg merges them into one `.mp4`. Without ffmpeg, MDI uses the best format that already has both, often 360p.
+- **For HD:** MDI needs [ffmpeg](https://ffmpeg.org/). YouTube sends HD video and audio as separate streams, and ffmpeg merges them into one `.mp4`. Without ffmpeg, MDI uses the best format that already has both, often 360p.
 - **Quality:** for a video-site link, the Add dialog shows a **Quality** choice: Best, 1080p, 720p, 480p or Audio only. If the exact quality doesn't exist, MDI takes the best one below it. Audio only saves an MP3 (with ffmpeg) or the site's own M4A audio (without). MDI remembers your choice, and a playlist uses it for every video.
 - **Playlists:** for a playlist link, the Add dialog shows a "Download the whole playlist" checkbox. Tick it and MDI reads the list (nothing is downloaded yet), then adds each video as its own row in a folder named after the playlist. Private or deleted videos and ones already in the list are skipped, and at most 1000 videos are added. Unticked, a `watch?v=…&list=…` link downloads only that video.
 - **Your responsibility:** downloading from YouTube is against its Terms of Service, and copyright still applies. Only download what you have the right to.
 
 **yt-dlp updates itself.** Video sites change often, and an old yt-dlp stops working. Once a week, in the background, MDI asks GitHub for yt-dlp's latest release. If it's newer than the copy in use, MDI downloads the official single-file build, checks it against the SHA-256 checksum yt-dlp publishes with the same release, and uses it from the next start. It's stored in `%APPDATA%\MDI\yt-dlp`. If the new copy fails to load, MDI goes back to the built-in one and never uses that version again. When a video download fails because the site changed, the fix dialog's **Update now** button checks straight away. See [mdi/updater.py](mdi/updater.py).
 
-The status bar shows when yt-dlp or ffmpeg is missing, or when yt-dlp is old and couldn't update itself. YouTube shows some videos, such as ones made for kids, only to players that pass a JavaScript check. To pass it, yt-dlp needs its `yt-dlp-ejs` package and a JavaScript runtime: Node.js, Deno or Bun. MDI turns on whichever is installed (yt-dlp on its own only looks for Deno). Without them, YouTube just says "This video is not available"; MDI recognises that and the fix dialog shows what to install.
+YouTube shows some videos, such as ones made for kids, only to players that pass a JavaScript check. To pass it, yt-dlp needs its `yt-dlp-ejs` package (bundled) and a JavaScript engine: Node.js, Deno, Bun or QuickJS. MDI turns on whichever is installed (yt-dlp on its own only looks for Deno). Without one, YouTube just says "This video is not available"; MDI recognises that, and the fix button gets the engine for you.
+
+**One-click helpers.** While ffmpeg or a JavaScript engine is missing, the status bar shows **Get HD video support** (or **Fix some YouTube videos** if only the engine is missing). One click, after you confirm, downloads:
+- **ffmpeg** (about 86 MB) from [yt-dlp's FFmpeg builds](https://github.com/yt-dlp/FFmpeg-Builds). Only `ffmpeg.exe`, `ffprobe.exe` and their DLLs are kept.
+- **Deno** (about 41 MB download, 94 MB on disk) from [Deno's releases](https://github.com/denoland/deno), pinned to v2.9.8. It's yt-dlp's default JavaScript engine. The smaller QuickJS was tried and dropped: it added about 10 seconds to every YouTube video, while Deno is as fast as Node.js (about 4 s).
+
+Each file must match the SHA-256 digest GitHub lists for it, and Deno must also match the hash written into [mdi/addons.py](mdi/addons.py). They're kept in `%LOCALAPPDATA%\MDI\tools` and only MDI's own PATH points there, so nothing changes system-wide. They work straight away, without a restart. If you already have ffmpeg, Node.js, Deno or Bun installed, MDI uses those and the link doesn't appear.
+
+The status bar also says when yt-dlp is missing, or old and unable to update itself.
 
 ### Install the browser extension (Chrome / Edge / Brave)
 1. Register MDI with your browsers. This is per-user, needs no admin rights, and `--remove` undoes it:
@@ -118,7 +126,7 @@ The design was audited against the OWASP Top 10 (2021). Each fix has a regressio
 | **A05 Security misconfiguration** | Unsafe defaults | No ports are open, isolated-mode Python (`-I`) runs the browser host, extension CSP is `script-src 'self'`, and settings loaded from disk are range-checked. |
 | **A06 Vulnerable components** | An old yt-dlp | MDI only passes cookies to yt-dlp 2023.07.06 or later (older versions leaked them to other hosts, CVE-2023-35934). yt-dlp updates itself weekly (see above). MDI itself uses only the Python standard library. |
 | **A07 Authentication failures** | Something pretending to be the app or the extension | The browser authenticates both sides of native messaging: the registered host path and the allowed extension ID. |
-| **A08 Integrity failures** | Downloaded programs skipping Windows protections | Every finished file gets the **Mark-of-the-Web** (`Zone.Identifier`, Zone 3), like a browser download, so SmartScreen and Office Protected View still apply. yt-dlp updates come only from yt-dlp's official GitHub releases over HTTPS and must match the SHA-256 checksum published with that release, contain `yt_dlp`, and carry the expected version, or they are discarded. (The checksum file is fetched from the same place, so this proves the download is intact, not who made it; yt-dlp's GPG signature isn't checked, because Python has no built-in GPG.) |
+| **A08 Integrity failures** | Downloaded programs skipping Windows protections | Every finished file gets the **Mark-of-the-Web** (`Zone.Identifier`, Zone 3), like a browser download, so SmartScreen and Office Protected View still apply. yt-dlp updates come only from yt-dlp's official GitHub releases over HTTPS and must match the SHA-256 checksum published with that release, contain `yt_dlp`, and carry the expected version, or they are discarded. The one-click helpers (ffmpeg, Deno) are checked the same way against GitHub's SHA-256 digest, and Deno against a hash pinned in MDI. (The checksum file is fetched from the same place, so this proves the download is intact, not who made it; yt-dlp's GPG signature isn't checked, because Python has no built-in GPG.) |
 | **A09 Logging and monitoring** | No record of what happened | `%APPDATA%\MDI\mdi.log` (rotated, 1 MB × 3) records adds, completions, failures and rejected requests. URLs are logged without query strings or credentials, and cookies are never logged. |
 | **A10 SSRF** | A download redirected to `file://` or `ftp://`, or downgraded to HTTP | Redirects are only followed to `http(s)`, and never from HTTPS down to HTTP. The extension also withholds `SameSite=Strict` cookies on downloads started from another site, matching what the browser would send. |
 
@@ -129,7 +137,7 @@ The design was audited against the OWASP Top 10 (2021). Each fix has a regressio
 
 ## Size and tests
 
-**Result:** about 3,400 lines of Python (comments included) across 12 modules, plus a ~115-line extension and 117 tests. The tests cover:
+**Result:** about 3,700 lines of Python (comments included) across 13 modules, plus a ~115-line extension and 129 tests. The tests cover:
 - multi-connection downloads checked byte-for-byte
 - dynamic splitting of a slow tail
 - pause → restart → resume

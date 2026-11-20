@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### New
+- **One-click HD video support.** While ffmpeg or a JavaScript engine is missing, the status bar offers to download them: ffmpeg from yt-dlp's FFmpeg builds (about 86 MB) and the Deno JavaScript engine (about 41 MB). Both come from the projects' GitHub releases, are checked against GitHub's SHA-256 digests (Deno also against a pinned hash), and stay in MDI's own folder. They work without a restart.
+- The "YouTube wants a quick check" fix now downloads the JavaScript engine for you instead of giving install commands, then retries the download.
+
 ## 1.2.0
 
 ### New
