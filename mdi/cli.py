@@ -11,7 +11,7 @@ import sys
 import time
 
 from .engine import COMPLETED, DOWNLOADING, QUEUED
-from .gui import fmt_eta, fmt_size
+from .texts import fmt_eta, fmt_size
 from .manager import Manager, app_dir
 
 

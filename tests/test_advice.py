@@ -81,7 +81,7 @@ class FixActionTests(unittest.TestCase):
     def test_new_link_keeps_progress_and_requeues(self):
         kept = Segment(0, 99, 50)
         self.d.segments = [kept]
-        with mock.patch("mdi.gui.simpledialog.askstring",
+        with mock.patch("mdi.flows.simpledialog.askstring",
                         return_value="https://a.test/f.zip?sig=new"):
             self.app.apply_fix(self.d, "new_link")
         self.assertEqual(self.d.url, "https://a.test/f.zip?sig=new")
@@ -89,7 +89,7 @@ class FixActionTests(unittest.TestCase):
         self.assertEqual(self.d.status, "queued")
 
     def test_new_link_rejects_non_http(self):
-        with mock.patch("mdi.gui.simpledialog.askstring",
+        with mock.patch("mdi.flows.simpledialog.askstring",
                         return_value="file:///C:/x"), \
                 mock.patch("mdi.gui.messagebox.showerror") as err:
             self.app.apply_fix(self.d, "new_link")
@@ -104,7 +104,7 @@ class FixActionTests(unittest.TestCase):
 
     def test_change_folder(self):
         other = os.path.join(self.dir, "other")
-        with mock.patch("mdi.gui.filedialog.askdirectory", return_value=other):
+        with mock.patch("mdi.flows.filedialog.askdirectory", return_value=other):
             self.app.apply_fix(self.d, "change_folder")
         self.assertEqual((self.d.save_dir, self.d.path), (other, None))
         self.assertEqual(self.d.status, "queued")

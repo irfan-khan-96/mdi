@@ -9,7 +9,7 @@ import time
 import unittest
 from unittest import mock
 
-from mdi import gui, selfupdate
+from mdi import selfupdate, texts
 
 REPO = selfupdate.REPO
 
@@ -143,7 +143,7 @@ class DownloadTests(Case):
         self.assertIn("{param:RELAUNCH|0}", iss)
 
     def test_question_text(self):
-        q = gui.update_question("1.4.0")
+        q = texts.update_question("1.4.0")
         self.assertIn("1.4.0", q)
         self.assertIn("SHA-256", q)
         self.assertIn("continue afterwards", q)
