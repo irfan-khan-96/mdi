@@ -27,7 +27,7 @@ build/venv/Scripts/python tools/build.py
 
 The output is `dist/MDI/MDI.exe` (about 37 MB as a folder) and `dist/MDI-Setup-<version>.exe` (about 20 MB).
 
-Releases are built by GitHub Actions: pushing a `v*` tag runs the tests, builds the installer and publishes it with its SHA-256 checksum ([.github/workflows](.github/workflows)). Every push and pull request runs the tests.
+Releases are built by GitHub Actions: pushing a `v*` tag runs the tests, builds the installer, smoke-tests it ([tools/smoke_test.py](tools/smoke_test.py): installs it silently, has the installed MDI download a file and checks it arrived intact, then uninstalls) and only then publishes it with its SHA-256 checksum ([.github/workflows](.github/workflows)). Every push and pull request runs the tests.
 
 ## How IDM works (and what MDI copies)
 

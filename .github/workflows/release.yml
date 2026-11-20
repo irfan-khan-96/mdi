@@ -1,10 +1,13 @@
 name: Release
 
-# Push a tag like v1.2.0 to test, build and publish the installer.
+# Push a tag like v1.2.0 to test, build, smoke-test and publish the
+# installer. Run it by hand ("Run workflow") for a dry run: everything
+# except publishing.
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write    # to create the GitHub Release
@@ -15,6 +18,7 @@ jobs:
     timeout-minutes: 30
     env:
       TAG: ${{ github.ref_name }}
+      PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,6 +26,7 @@ jobs:
           python-version: "3.14"
 
       - name: Check the tag matches the app version
+        if: env.PUBLISH == 'true'
         shell: pwsh
         run: |
           $v = python -c "import mdi; print(mdi.__version__)"
@@ -39,7 +44,12 @@ jobs:
       - name: Build MDI.exe and the installer
         run: python tools/build.py
 
+      - name: Smoke-test the installer (install, download a file, uninstall)
+        shell: pwsh
+        run: python tools/smoke_test.py (Get-Item dist/MDI-Setup-*.exe).FullName
+
       - name: Write checksum and release notes
+        if: env.PUBLISH == 'true'
         shell: pwsh
         run: |
           $f = Get-Item dist/MDI-Setup-*.exe
@@ -48,6 +58,7 @@ jobs:
           python tools/release_notes.py $env:TAG.TrimStart("v") | Out-File -Encoding utf8 dist/notes.md
 
       - name: Publish the release
+        if: env.PUBLISH == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
