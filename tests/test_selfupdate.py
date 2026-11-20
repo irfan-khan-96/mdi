@@ -141,6 +141,16 @@ class DownloadTests(Case):
             iss = f.read()
         self.assertIn("Check: ShouldRelaunch", iss)
         self.assertIn("{param:RELAUNCH|0}", iss)
+        # Setup's Redirection Guard is inherited by programs it starts;
+        # MDI must be started through Explorer so it can follow links
+        # such as WinGet's ffmpeg.exe.
+        run = iss[iss.index("[Run]"):iss.index("[Code]")]
+        starts = [line for line in run.splitlines()
+                  if line.startswith("Filename:")]
+        self.assertEqual(len(starts), 2)
+        for line in starts:
+            self.assertIn(r'Filename: "{win}\explorer.exe"', line)
+            self.assertIn(r'"""{app}\MDI.exe"""', line)
 
     def test_question_text(self):
         q = texts.update_question("1.4.0")

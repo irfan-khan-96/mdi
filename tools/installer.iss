@@ -49,10 +49,14 @@ Name: "{autodesktop}\MDI Downloader"; Filename: "{app}\MDI.exe"; AppUserModelID:
 Root: HKCU; Subkey: "Software\Classes\AppUserModelId\MDI.Downloader"; ValueType: string; ValueName: "DisplayName"; ValueData: "MDI Downloader"; Flags: uninsdeletekey
 
 [Run]
-Filename: "{app}\MDI.exe"; Description: "Start MDI Downloader"; Flags: nowait postinstall skipifsilent
+; MDI is started through Explorer, not directly: Setup runs with Windows'
+; Redirection Guard, and programs it starts inherit it. That blocks
+; following links that users created, such as WinGet's ffmpeg.exe link, so
+; MDI started directly by Setup couldn't find an installed ffmpeg.
+Filename: "{win}\explorer.exe"; Parameters: """{app}\MDI.exe"""; Description: "Start MDI Downloader"; Flags: nowait postinstall skipifsilent
 ; MDI's self-update runs this installer silently with /RELAUNCH=1: open
 ; MDI again once the new files are in place.
-Filename: "{app}\MDI.exe"; Flags: nowait; Check: ShouldRelaunch
+Filename: "{win}\explorer.exe"; Parameters: """{app}\MDI.exe"""; Flags: nowait; Check: ShouldRelaunch
 
 [Code]
 function ShouldRelaunch: Boolean;

@@ -143,6 +143,8 @@ class Flows:
 
     def show_addon_link(self):
         need = addons.missing() if media.available() else []
+        if need:
+            log.info("helpers missing: %s", ", ".join(need))
         if need and not self._addon_busy:
             self.addon_link.config(text=addon_link_text(need))
             self.addon_link.pack(side="right")
