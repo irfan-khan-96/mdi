@@ -70,6 +70,8 @@ def main() -> int:
         "--paths", ROOT,
         "--collect-submodules", "mdi",
         "--hidden-import", "yt_dlp",
+        # Lets the self-updater (mdi/updater.py) see which yt-dlp is built in.
+        "--copy-metadata", "yt-dlp",
         # YouTube's JavaScript-challenge scripts (data files, not code
         # PyInstaller would find on its own). A JS runtime (Node/Deno) is
         # still needed on the PC.

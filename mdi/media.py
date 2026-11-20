@@ -14,10 +14,32 @@ from __future__ import annotations
 import os
 import shutil
 
-try:
-    import yt_dlp
-except ImportError:  # optional dependency
-    yt_dlp = None
+from . import updater
+
+
+def _import_yt_dlp():
+    """yt-dlp, preferring the self-updated copy (see updater.py) and
+    falling back to the built-in one if that copy fails to load."""
+    updater.activate()
+    try:
+        import yt_dlp
+        if updater.active_version and updater.zip_path() not in \
+                (getattr(yt_dlp, "__file__", "") or ""):
+            updater.log.warning("updated yt-dlp wasn't picked up; using %s",
+                                getattr(yt_dlp, "__file__", "?"))
+        return yt_dlp
+    except Exception:  # noqa: BLE001 - optional dependency
+        if not updater.active_version:
+            return None
+        updater.deactivate()
+        try:
+            import yt_dlp
+            return yt_dlp
+        except Exception:  # noqa: BLE001
+            return None
+
+
+yt_dlp = _import_yt_dlp()
 
 
 def available() -> bool:
@@ -35,6 +57,14 @@ def version() -> tuple[int, ...]:
         return tuple(int(x) for x in __version__.split(".")[:3])
     except Exception:  # noqa: BLE001
         return (0,)
+
+
+def version_text() -> str | None:
+    try:
+        from yt_dlp.version import __version__
+        return __version__
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def age_days() -> int | None:
@@ -87,6 +117,68 @@ def _explain_failure(msg: str) -> str:
                                   "page needs to be reloaded" in low):
         return NEEDS_JS
     return msg
+
+
+# ---------------------------------------------------------------- quality
+
+QUALITIES = (("best", "Best"), ("1080", "1080p"), ("720", "720p"),
+             ("480", "480p"), ("audio", "Audio only"))
+
+
+def format_options(quality: str, ffmpeg: bool) -> dict:
+    """yt-dlp options for one of QUALITIES. Each choice falls back to the
+    best available when the exact one doesn't exist."""
+    if quality == "audio":
+        if ffmpeg:   # convert to MP3: plays everywhere
+            return {"format": "ba/b",
+                    "postprocessors": [{"key": "FFmpegExtractAudio",
+                                        "preferredcodec": "mp3",
+                                        "preferredquality": "0"}]}
+        return {"format": "ba[ext=m4a]/ba[acodec!=none]/b"}
+    cap = f"[height<={quality}]" if quality in ("1080", "720", "480") else ""
+    if ffmpeg:
+        return {"format": f"bv*{cap}+ba/b{cap}/bv*+ba/b",
+                "merge_output_format": "mp4"}
+    return {"format": f"b{cap}[vcodec!=none][acodec!=none]/"
+                      "b[vcodec!=none][acodec!=none]/b"}
+
+
+# A link's site is recognised offline by yt-dlp's ~1,800 URL patterns.
+# Loading them takes about a second, so it's done once in the background.
+_extractors: list | None = None
+_warming = False
+
+
+def warm_up() -> None:
+    global _warming
+    if _warming or yt_dlp is None:
+        return
+    _warming = True
+
+    def load():
+        global _extractors
+        try:
+            from yt_dlp.extractor import gen_extractor_classes
+            _extractors = [ie for ie in gen_extractor_classes()
+                           if ie.ie_key() != "Generic"]
+        except Exception:  # noqa: BLE001
+            _extractors = []
+    import threading
+    threading.Thread(target=load, daemon=True, name="extractors").start()
+
+
+def is_video_site(url: str) -> bool | None:
+    """True if yt-dlp has a site-specific extractor for ``url``; None while
+    the patterns are still loading."""
+    if yt_dlp is None:
+        return False
+    if _extractors is None:
+        warm_up()
+        return None
+    try:
+        return any(ie.suitable(url) for ie in _extractors)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 MAX_PLAYLIST = 1000   # YouTube "mixes" are endless; stop somewhere sane
@@ -205,9 +297,6 @@ def download(dl) -> None:
     ffmpeg = has_ffmpeg()
     opts = {
         "outtmpl": os.path.join(dl.save_dir, "%(title).150B [%(id)s].%(ext)s"),
-        # Best video+audio merged into one file needs ffmpeg; otherwise the
-        # best format that already contains both.
-        "format": "bv*+ba/b" if ffmpeg else "b[vcodec!=none][acodec!=none]/b",
         "noplaylist": True,          # a watch?v=..&list=.. link = that video
         "quiet": True, "no_warnings": True, "noprogress": True,
         "progress_hooks": [hook],
@@ -217,8 +306,9 @@ def download(dl) -> None:
         "concurrent_fragment_downloads": dl.connections,
         "js_runtimes": js_runtimes(),
     }
-    if ffmpeg:
-        opts["merge_output_format"] = "mp4"
+    # Best video+audio merged into one file needs ffmpeg; otherwise the
+    # best format that already contains both.
+    opts.update(format_options(getattr(dl, "quality", "best"), ffmpeg))
     headers = dict(dl.headers)
     if "Cookie" in headers and version() < COOKIE_SAFE_VERSION:
         headers.pop("Cookie")   # old yt-dlp would leak it to other hosts
@@ -242,13 +332,16 @@ def download(dl) -> None:
             planned = ydl.prepare_filename(info)
             dl.media_stem = os.path.splitext(planned)[0]
             dl.filename = os.path.basename(planned)
-            if ffmpeg and len(formats) > 1:
-                dl.filename = os.path.splitext(dl.filename)[0] + ".mp4"
+            final_ext = (".mp3" if "postprocessors" in opts else
+                         ".mp4" if ffmpeg and len(formats) > 1 else None)
+            if final_ext:
+                dl.filename = os.path.splitext(dl.filename)[0] + final_ext
             dl.resumable = True
 
             info = ydl.process_ie_result(info, download=True)
             reqs = info.get("requested_downloads") or [{}]
-            path = reqs[0].get("filepath") or ydl.prepare_filename(info)
+            path = reqs[0].get("filepath") or info.get("filepath") or \
+                ydl.prepare_filename(info)
     except FatalError:
         raise
     except Exception as e:  # noqa: BLE001 - yt-dlp wraps everything

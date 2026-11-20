@@ -280,6 +280,7 @@ class Download:
         self._req_headers: dict = {}
         self._resume_after_stop = False
         self.media_stem: str | None = None   # yt-dlp temp-file prefix
+        self.quality = "best"                # videos only, see media.py
         self.speed = 0.0
 
     # ---- public API ---------------------------------------------------
@@ -354,7 +355,7 @@ class Download:
             "etag": self.etag, "last_modified": self.last_modified,
             "segments": segs, "status": self.status, "error": self.error,
             "added": self.added, "kind": self.kind,
-            "media_stem": self.media_stem,
+            "media_stem": self.media_stem, "quality": self.quality,
         }
 
     @classmethod
@@ -362,7 +363,8 @@ class Download:
         dl = cls(d["url"], d["save_dir"], d.get("connections", 8),
                  d.get("headers"), d.get("filename"), d["id"])
         for k in ("path", "size", "resumable", "etag", "last_modified",
-                  "status", "error", "added", "kind", "media_stem"):
+                  "status", "error", "added", "kind", "media_stem",
+                  "quality"):
             if k in d:
                 setattr(dl, k, d[k])
         dl.segments = [Segment(*s) for s in d.get("segments", [])]

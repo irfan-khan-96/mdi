@@ -6,7 +6,7 @@ Actions the GUI knows how to perform:
   change_folder  save somewhere else
   restart        throw away the partial file and start over
   video_setup    copy "pip install yt-dlp"
-  update_ytdlp   copy "pip install -U yt-dlp"
+  update_ytdlp   download the latest yt-dlp now (see updater.py)
   js_setup       explain / copy what's missing for YouTube's JS check
   None           nothing MDI can safely do; the sentence explains why
 """
@@ -94,7 +94,7 @@ ACTION_LABELS = {
     "change_folder": "Choose folder…",
     "restart": "Start over",
     "video_setup": "Copy setup command",
-    "update_ytdlp": "Copy update command",
+    "update_ytdlp": "Update now",
     "js_setup": "Set up helper…",
 }
 

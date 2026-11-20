@@ -111,9 +111,22 @@ class FixActionTests(unittest.TestCase):
 
     def test_copy_command(self):
         with mock.patch("mdi.gui.messagebox.showinfo"):
-            self.app.apply_fix(self.d, "update_ytdlp")
-        self.assertEqual(self.root.clipboard_get(), "pip install -U yt-dlp")
+            self.app.apply_fix(self.d, "video_setup")
+        self.assertEqual(self.root.clipboard_get(), "pip install yt-dlp")
         self.assertEqual(self.d.status, ERROR)
+
+    def test_update_now_fetches_latest_yt_dlp(self):
+        import time
+        with mock.patch("mdi.updater.update", return_value="2099.01.01") as up, \
+                mock.patch("mdi.gui.messagebox.showinfo") as info:
+            self.app.apply_fix(self.d, "update_ytdlp")
+            deadline = time.time() + 5
+            while not info.called and time.time() < deadline:
+                self.root.update()
+                time.sleep(0.05)
+        self.assertTrue(up.call_args.kwargs["force"])
+        self.assertIn("2099.01.01", info.call_args[0][1])
+        self.assertEqual(self.d.status, ERROR)   # takes effect after restart
 
     def test_dialog_and_row_show_advice(self):
         from mdi.gui import FixDialog
