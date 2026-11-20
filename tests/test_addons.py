@@ -10,7 +10,7 @@ import unittest
 import zipfile
 from unittest import mock
 
-from mdi import addons, gui
+from mdi import addons, texts
 
 
 def ffmpeg_zip(extra=()) -> bytes:
@@ -152,9 +152,9 @@ class DetectTests(AddonCase):
 
 class TextTests(unittest.TestCase):
     def test_link_and_question(self):
-        self.assertIn("HD video", gui.addon_link_text(["ffmpeg", "deno"]))
-        self.assertIn("YouTube", gui.addon_link_text(["deno"]))
-        q = gui.addon_question(["ffmpeg", "deno"])
+        self.assertIn("HD video", texts.addon_link_text(["ffmpeg", "deno"]))
+        self.assertIn("YouTube", texts.addon_link_text(["deno"]))
+        q = texts.addon_question(["ffmpeg", "deno"])
         self.assertIn("about 86 MB", q)
         self.assertIn("about 41 MB", q)
         self.assertIn("SHA-256", q)

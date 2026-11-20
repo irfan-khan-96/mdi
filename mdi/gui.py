@@ -1,320 +1,50 @@
-"""Tkinter front-end: one list, one toolbar, one per-connection progress bar."""
+"""Tkinter front-end: one list, one toolbar, one per-connection progress bar.
+
+The dialogs live in dialogs.py, the longer flows (fixes, helpers, updates)
+in flows.py, and the wording in texts.py.
+"""
 
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import messagebox, ttk
 
-from .advice import ACTION_LABELS, explain
-from . import addons, media, selfupdate, updater
+from . import media, selfupdate, updater
+from .advice import explain
+from .dialogs import AddDialog, FixDialog, SettingsDialog, open_path, reveal
 from .engine import (COMPLETED, DOWNLOADING, ERROR, QUEUED, Download,
                      sanitize_filename)
-from .manager import Manager, partial_files
-from .safety import (acquire_instance_lock, check_url, credentials_for,
-                     get_logger)
+from .flows import Flows
+from .manager import Manager
+from .safety import acquire_instance_lock, get_logger
+from .texts import (EMPTY_HINT, IDLE_HINT, SHORTCUTS_HELP, UNDO_SECONDS,
+                    close_text, finished_since, fmt_eta, fmt_size,
+                    notification_for, overall_progress, status_notes,
+                    toggle_plan, undo_text)
 from .winshell import Notifier, Taskbar, is_foreground
 
 
 log = get_logger()
 
 
-def fmt_size(n: float | None) -> str:
-    if n is None:
-        return "?"
-    for unit in ("B", "KB", "MB", "GB"):
-        if n < 1024:
-            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
-        n /= 1024
-    return f"{n:.2f} TB"
 
 
-def fmt_eta(s: float | None) -> str:
-    if s is None or s < 0:
-        return ""
-    s = int(s)
-    h, m = divmod(s, 3600)
-    m, s = divmod(m, 60)
-    return f"{h}:{m:02}:{s:02}" if h else f"{m}:{s:02}"
 
 
-def open_path(path: str) -> None:
-    if sys.platform == "win32":
-        os.startfile(path)  # noqa: S606
-    else:
-        subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open",
-                          path])
 
 
-def reveal(path: str) -> None:
-    if sys.platform == "win32" and os.path.exists(path):
-        subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
-    else:
-        open_path(os.path.dirname(path))
 
 
-class AddDialog(tk.Toplevel):
-    def __init__(self, app: "App", url: str = ""):
-        super().__init__(app.root)
-        self.app = app
-        self.title("Add download")
-        self.resizable(False, False)
-        self.transient(app.root)
-        s = app.manager.settings
-
-        self.url = tk.StringVar(value=url)
-        self.dir = tk.StringVar(value=s["download_dir"])
-        self.name = tk.StringVar()
-        self.conns = tk.IntVar(value=s["connections"])
-
-        f = ttk.Frame(self, padding=12)
-        f.pack(fill="both", expand=True)
-        rows = [("URL", ttk.Entry(f, textvariable=self.url, width=60)),
-                ("Save to", ttk.Entry(f, textvariable=self.dir, width=60)),
-                ("File name", ttk.Entry(f, textvariable=self.name, width=60)),
-                ("Connections", ttk.Spinbox(f, from_=1, to=32, width=5,
-                                            textvariable=self.conns))]
-        for i, (label, widget) in enumerate(rows):
-            ttk.Label(f, text=label).grid(row=i, column=0, sticky="w", pady=3)
-            widget.grid(row=i, column=1, sticky="w", pady=3)
-        ttk.Button(f, text="…", width=3, command=self._browse).grid(
-            row=1, column=2, padx=(4, 0))
-        ttk.Label(f, text="(leave empty to use the server's name)",
-                  foreground="gray").grid(row=2, column=2, sticky="w", padx=4)
-
-        # Only appears for playlist links (and only if yt-dlp is installed).
-        self.whole = tk.BooleanVar(value=False)
-        self.whole_box = ttk.Checkbutton(
-            f, variable=self.whole,
-            text="Download the whole playlist (each video in its own row)")
-        self.whole_row = len(rows) + 1
-
-        # Only appears for video-site links.
-        self.labels = dict(media.QUALITIES)
-        self.quality = tk.StringVar(
-            value=self.labels.get(s.get("video_quality"), "Best"))
-        self.quality_label = ttk.Label(f, text="Quality")
-        self.quality_box = ttk.Combobox(
-            f, textvariable=self.quality, state="readonly", width=12,
-            values=[label for _, label in media.QUALITIES])
-        self.quality_row = len(rows)
-        self._video_check = None
-
-        self.note = ttk.Label(f, foreground="gray")
-        self.note.grid(row=len(rows) + 2, column=0, columnspan=3, sticky="w")
-        self.url.trace_add("write", lambda *a: self._show_options())
-        self._show_options()
-
-        b = ttk.Frame(f)
-        b.grid(row=len(rows) + 3, column=0, columnspan=3, sticky="e",
-               pady=(10, 0))
-        self.start_btn = ttk.Button(b, text="Start", command=self._ok)
-        self.start_btn.pack(side="left", padx=4)
-        ttk.Button(b, text="Cancel", command=self.destroy).pack(side="left")
-        self.bind("<Return>", lambda e: self._ok())
-        self.bind("<Escape>", lambda e: self.destroy())
-        rows[0][1].focus_set()
-        rows[0][1].select_range(0, "end")
-        self.grab_set()
-
-    def _browse(self):
-        d = filedialog.askdirectory(initialdir=self.dir.get(), parent=self)
-        if d:
-            self.dir.set(d)
-
-    def _show_options(self):
-        self._show_playlist_option()
-        self._show_quality_option()
-
-    def _show_quality_option(self):
-        """Show the quality choice for video links. The site check may
-        still be loading; if so, look again shortly."""
-        if self._video_check is not None:
-            self.after_cancel(self._video_check)
-            self._video_check = None
-        video = media.is_video_site(self.url.get().strip())
-        if video is None:
-            self._video_check = self.after(200, self._show_quality_option)
-            return
-        if video:
-            self.quality_label.grid(row=self.quality_row, column=0,
-                                    sticky="w", pady=3)
-            self.quality_box.grid(row=self.quality_row, column=1,
-                                  sticky="w", pady=3)
-        else:
-            self.quality_label.grid_remove()
-            self.quality_box.grid_remove()
-
-    def chosen_quality(self) -> str | None:
-        """The quality key if the option is showing (and remember it)."""
-        if not self.quality_box.winfo_ismapped():
-            return None
-        key = next((k for k, v in self.labels.items()
-                    if v == self.quality.get()), "best")
-        self.app.manager.settings["video_quality"] = key
-        return key
-
-    def _show_playlist_option(self):
-        if media.available() and media.looks_like_playlist(self.url.get()):
-            self.whole_box.grid(row=self.whole_row, column=1, sticky="w",
-                                pady=3)
-        else:
-            self.whole_box.grid_remove()
-            self.whole.set(False)
-
-    def _ok(self):
-        if self.start_btn.instate(["disabled"]):   # playlist being read
-            return
-        try:
-            conns = int(self.conns.get())
-        except (tk.TclError, ValueError):
-            conns = self.app.manager.settings["connections"]
-        quality = self.chosen_quality()
-        if self.whole.get():
-            return self._add_playlist(conns, quality)
-        try:
-            self.app.manager.add(self.url.get(), quality=quality,
-                                 filename=self.name.get().strip() or None,
-                                 save_dir=self.dir.get().strip() or None,
-                                 connections=conns)
-        except ValueError as e:
-            messagebox.showerror("MDI", str(e).capitalize() + ".",
-                                 parent=self)
-            return
-        self.destroy()
-
-    def _add_playlist(self, conns: int, quality: str | None = None):
-        """Read the list in the background (a second or two), then add one
-        row per video inside a folder named after the playlist."""
-        url, base = self.url.get().strip(), self.dir.get().strip() or None
-        self.start_btn.state(["disabled"])
-        self.note.config(text="Reading the playlist…")
-        result: dict = {}
-
-        def work():
-            try:
-                result["ok"] = media.expand_playlist(url)
-            except Exception as e:  # noqa: BLE001 - shown to the user
-                result["err"] = str(e)
-
-        def wait():
-            if not self.winfo_exists():
-                return
-            if not result:
-                return self.after(100, wait)
-            if "err" in result:
-                self.start_btn.state(["!disabled"])
-                self.note.config(text="")
-                messagebox.showerror(
-                    "MDI", "Couldn't read the playlist: " + result["err"],
-                    parent=self)
-                return
-            title, urls = result["ok"]
-            if not urls:
-                self.start_btn.state(["!disabled"])
-                self.note.config(text="That playlist has no videos MDI can "
-                                      "download.")
-                return
-            self.app.add_many(urls, base, title, conns, quality)
-            self.destroy()
-
-        threading.Thread(target=work, daemon=True).start()
-        wait()
 
 
-class FixDialog(tk.Toplevel):
-    """What went wrong in one sentence, and the one button that fixes it."""
-
-    def __init__(self, app: "App", d: Download):
-        super().__init__(app.root)
-        self.title("Download problem")
-        self.resizable(False, False)
-        self.transient(app.root)
-        advice, action = explain(d.error, d.kind)
-
-        f = ttk.Frame(self, padding=16)
-        f.pack(fill="both", expand=True)
-        ttk.Label(f, text=d.filename or d.url, font=("", 10, "bold"),
-                  wraplength=420).pack(anchor="w")
-        ttk.Label(f, text=advice, wraplength=420,
-                  justify="left").pack(anchor="w", pady=(6, 4))
-        ttk.Label(f, text=f"Details: {d.error}", foreground="#555555",
-                  wraplength=420, justify="left").pack(anchor="w")
-
-        b = ttk.Frame(f)
-        b.pack(anchor="e", pady=(14, 0))
-        if action:
-            def run():
-                self.destroy()
-                app.apply_fix(d, action)
-            primary = ttk.Button(b, text=ACTION_LABELS[action], command=run)
-            primary.pack(side="left", padx=(0, 6))
-            self.bind("<Return>", lambda e: run())
-        close = ttk.Button(b, text="Close", command=self.destroy)
-        close.pack(side="left")
-        self.bind("<Escape>", lambda e: self.destroy())
-        (primary if action else close).focus_set()
-        self.grab_set()
 
 
-class SettingsDialog(tk.Toplevel):
-    def __init__(self, app: "App"):
-        super().__init__(app.root)
-        self.app = app
-        self.title("Settings")
-        self.resizable(False, False)
-        self.transient(app.root)
-        s = app.manager.settings
-        self.vars = {
-            "download_dir": tk.StringVar(value=s["download_dir"]),
-            "connections": tk.IntVar(value=s["connections"]),
-            "max_parallel": tk.IntVar(value=s["max_parallel"]),
-        }
-        f = ttk.Frame(self, padding=12)
-        f.pack()
-        ttk.Label(f, text="Default folder").grid(row=0, column=0, sticky="w")
-        ttk.Entry(f, textvariable=self.vars["download_dir"], width=50).grid(
-            row=0, column=1, pady=3)
-        ttk.Button(f, text="…", width=3, command=self._browse).grid(
-            row=0, column=2, padx=(4, 0))
-        ttk.Label(f, text="Connections per download").grid(
-            row=1, column=0, sticky="w")
-        ttk.Spinbox(f, from_=1, to=32, width=5,
-                    textvariable=self.vars["connections"]).grid(
-            row=1, column=1, sticky="w", pady=3)
-        ttk.Label(f, text="Downloads at the same time").grid(
-            row=2, column=0, sticky="w")
-        ttk.Spinbox(f, from_=1, to=10, width=5,
-                    textvariable=self.vars["max_parallel"]).grid(
-            row=2, column=1, sticky="w", pady=3)
-        b = ttk.Frame(f)
-        b.grid(row=4, column=0, columnspan=3, sticky="e", pady=(10, 0))
-        ttk.Button(b, text="Save", command=self._ok).pack(side="left", padx=4)
-        ttk.Button(b, text="Cancel", command=self.destroy).pack(side="left")
-        self.grab_set()
-
-    def _browse(self):
-        d = filedialog.askdirectory(
-            initialdir=self.vars["download_dir"].get(), parent=self)
-        if d:
-            self.vars["download_dir"].set(d)
-
-    def _ok(self):
-        s = self.app.manager.settings
-        try:
-            s["connections"] = max(1, min(32, int(self.vars["connections"].get())))
-            s["max_parallel"] = max(1, min(10, int(self.vars["max_parallel"].get())))
-        except (tk.TclError, ValueError):
-            pass
-        s["download_dir"] = self.vars["download_dir"].get().strip() or s["download_dir"]
-        self.app.manager.save()
-        self.destroy()
 
 
-class App:
+class App(Flows):
     COLUMNS = (("name", "File", 300), ("size", "Size", 80),
                ("progress", "Progress", 70), ("speed", "Speed", 90),
                ("eta", "Time left", 70), ("conns", "Conn.", 45),
@@ -559,219 +289,11 @@ class App:
             elif d.status != DOWNLOADING:
                 self.manager.resume(d)
 
-    def apply_fix(self, d: Download, action: str | None) -> None:
-        """Carry out the one fix suggested for a failed download."""
-        def drop_partial():
-            for p in partial_files(d):
-                try:
-                    os.remove(p)
-                except OSError:
-                    pass
-            d.segments = []
 
-        if action == "new_link":
-            url = simpledialog.askstring(
-                "Paste new link", "Paste a fresh link to the same file.\n"
-                "MDI keeps what it already downloaded if the file is "
-                "unchanged.", parent=self.root)
-            if not url:
-                return
-            try:
-                new = check_url(url)
-            except ValueError as e:
-                messagebox.showerror("MDI", str(e).capitalize() + ".")
-                return
-            # Cookies were captured for the old site: never send them to
-            # a different one.
-            d.headers = credentials_for(d.url, new, d.headers)
-            d.url, d.final_url = new, None
-        elif action == "change_folder":
-            folder = filedialog.askdirectory(initialdir=d.save_dir,
-                                             parent=self.root)
-            if not folder:
-                return
-            drop_partial()
-            d.save_dir, d.path = folder, None
-        elif action == "restart":
-            drop_partial()
-        elif action == "update_ytdlp":
-            self._update_ytdlp_now()
-            return
-        elif action == "video_setup":
-            cmd = "pip install yt-dlp"
-            self.root.clipboard_clear()
-            self.root.clipboard_append(cmd)
-            messagebox.showinfo(
-                "MDI", f"Copied:  {cmd}\n\nPaste it into a terminal and "
-                       "press Enter, then restart MDI and try again.")
-            return
-        elif action == "js_setup":
-            steps = js_setup_steps()
-            if not steps:            # fixed meanwhile (e.g. Node installed)
-                self.manager.resume(d)
-                return
-            if steps == [JS_ENGINE_STEP]:
-                self.get_addons(["deno"], then_retry=d)
-                return
-            cmd = next((s for s in steps if s.startswith(("pip", "winget"))),
-                       "")
-            if cmd:
-                self.root.clipboard_clear()
-                self.root.clipboard_append(cmd)
-            messagebox.showinfo(
-                "MDI", "To download this video MDI needs:\n\n" +
-                "\n".join(f"•  {s}" for s in steps) +
-                (f"\n\nCopied:  {cmd}\nPaste it into a terminal and press "
-                 "Enter." if cmd else "") +
-                "\n\nThen restart MDI and try again.")
-            return
-        elif action != "retry":
-            return
-        self.manager.resume(d)
-        self.manager.save()
 
-    # ---- MDI's own updates (selfupdate.py) -------------------------------
-    def show_update_link(self):
-        v = selfupdate.available() if selfupdate.enabled() else None
-        self._update_shown = v
-        if self._update_busy:
-            return
-        if v:
-            self.update_link.config(text=f"MDI {v} is available · Update")
-            self.update_link.pack(side="right")
-        else:
-            self.update_link.pack_forget()
 
-    def update_app(self):
-        """Download and verify the new installer, then save everything,
-        start the installer and close. It reopens MDI when done."""
-        version = selfupdate.available()
-        if self._update_busy or not version:
-            return
-        if not messagebox.askokcancel(
-                "Update MDI", update_question(version), parent=self.root):
-            return
-        self._update_busy = True
-        state: dict = {"pct": 0}
 
-        def work():
-            try:
-                state["path"] = selfupdate.download(
-                    version, lambda pct: state.update(pct=pct))
-            except Exception as e:  # noqa: BLE001 - shown to the user
-                log.warning("MDI update download failed: %s", e)
-                state["err"] = str(e)
 
-        def wait():
-            if "path" not in state and "err" not in state:
-                self.update_link.config(
-                    text=f"Downloading MDI {version} · {state['pct']}%")
-                return self.root.after(250, wait)
-            self._update_busy = False
-            if "err" in state:
-                self.show_update_link()
-                messagebox.showerror(
-                    "MDI", "Couldn't download the update: " + state["err"] +
-                    "\n\nYou can keep using this version and try again "
-                    "later.", parent=self.root)
-                return
-            self.update_link.config(text=f"Installing MDI {version}…")
-            self.root.update_idletasks()
-            self._shutdown()
-            try:
-                selfupdate.launch(state["path"])
-            except OSError as e:
-                log.warning("couldn't start the MDI installer: %s", e)
-            self.root.destroy()
-
-        threading.Thread(target=work, daemon=True, name="mdi-update").start()
-        wait()
-
-    # ---- optional helpers (addons.py) -----------------------------------
-    def show_addon_link(self):
-        need = addons.missing() if media.available() else []
-        if need and not self._addon_busy:
-            self.addon_link.config(text=addon_link_text(need))
-            self.addon_link.pack(side="right")
-        elif not self._addon_busy:
-            self.addon_link.pack_forget()
-
-    def get_addons(self, keys=None, then_retry: Download | None = None):
-        """Ask, then download ffmpeg / Deno in the background."""
-        keys = keys or addons.missing()
-        if self._addon_busy or not keys:
-            return
-        if not messagebox.askokcancel(
-                "Get HD video support", addon_question(keys),
-                parent=self.root):
-            return
-        self._addon_busy = True
-        state: dict = {"text": "Starting…"}
-
-        def work():
-            try:
-                addons.install(keys, lambda t: state.update(text=t))
-                state["ok"] = True
-            except Exception as e:  # noqa: BLE001 - shown to the user
-                log.warning("couldn't install helpers: %s", e)
-                state["err"] = str(e)
-
-        def wait():
-            self.addon_link.config(text="Getting HD video support · " +
-                                   state["text"])
-            self.addon_link.pack(side="right")
-            if "ok" not in state and "err" not in state:
-                return self.root.after(250, wait)
-            self._addon_busy = False
-            self.bridge_note = status_notes()
-            self.show_addon_link()
-            if "err" in state:
-                messagebox.showerror(
-                    "MDI", "Couldn't download the helpers: " + state["err"] +
-                    "\n\nCheck your internet connection and try again.",
-                    parent=self.root)
-                return
-            messagebox.showinfo(
-                "MDI", "Done. HD video, MP3 audio and protected YouTube "
-                       "videos now work.", parent=self.root)
-            if then_retry is not None and then_retry.status == ERROR:
-                self.manager.resume(then_retry)
-
-        threading.Thread(target=work, daemon=True, name="addons").start()
-        wait()
-
-    def _update_ytdlp_now(self):
-        """The "Update now" fix: fetch the latest yt-dlp in the background."""
-        self.status.config(text="Updating yt-dlp…")
-        result: dict = {}
-
-        def work():
-            try:
-                result["ok"] = updater.update(media.version_text(), force=True)
-            except Exception as e:  # noqa: BLE001 - shown to the user
-                result["err"] = str(e)
-
-        def wait():
-            if not result:
-                return self.root.after(200, wait)
-            if "err" in result:
-                messagebox.showerror(
-                    "MDI", "Couldn't update yt-dlp: " + result["err"] +
-                    "\n\nCheck your internet connection and try again.",
-                    parent=self.root)
-            elif result["ok"]:
-                messagebox.showinfo(
-                    "MDI", f"yt-dlp updated to {result['ok']}.\n\nClose and "
-                           "reopen MDI to use it, then try the download "
-                           "again.", parent=self.root)
-            else:
-                messagebox.showinfo(
-                    "MDI", "yt-dlp is already the latest version. The site "
-                           "may have changed in a way yt-dlp doesn't support "
-                           "yet; try again in a few days.", parent=self.root)
-
-        threading.Thread(target=work, daemon=True).start()
-        wait()
 
     def quit(self):
         active = sum(1 for d in self.manager.downloads
@@ -923,87 +445,20 @@ class App:
 
 
 
-EMPTY_HINT = "Copy a link and press Ctrl+V to download it.  F1: shortcuts"
-IDLE_HINT = "F1: keyboard shortcuts"
-SHORTCUTS_HELP = """\
-Ctrl+V\tAdd the link on the clipboard
-Space\tPause / resume the selected downloads
-Enter\tOpen the file (or fix / start the download)
-Delete\tRemove from the list (Ctrl+Z brings it back)
-Shift+Delete\tRemove and delete the file from disk
-Ctrl+O\tShow in folder
-Ctrl+A\tSelect all
-Esc\tClear the selection"""
 
 
-UNDO_SECONDS = 10
 
 
-def close_text(active: int) -> str:
-    what = "1 download is" if active == 1 else f"{active} downloads are"
-    return (f"{what} still running.\n\nClosing pauses them. They continue "
-            "from where they stopped the next time you open MDI.")
 
 
-def undo_text(n: int) -> str:
-    what = "download" if n == 1 else f"{n} downloads"
-    return f"Removed {what} · Undo (Ctrl+Z)"
 
 
-def toggle_plan(items: list[Download]) -> str | None:
-    """Space: pause if anything selected is running or waiting, else resume
-    whatever can be resumed."""
-    if any(d.status in (DOWNLOADING, QUEUED) for d in items):
-        return "pause"
-    if any(d.status != COMPLETED for d in items):
-        return "resume"
-    return None
 
 
-def overall_progress(active: list[Download]) -> float | None:
-    """Combined fraction for the taskbar; None if no size is known yet."""
-    sized = [d for d in active if d.size]
-    if not sized:
-        return None
-    total = sum(d.size for d in sized)
-    return min(1.0, sum(min(d.downloaded, d.size) for d in sized) / total)
 
 
-def finished_since(last: dict, downloads: list[Download]):
-    """Downloads that went from queued/downloading to completed / failed
-    since the previous call (fast ones can skip "downloading" entirely
-    between two refreshes). Updates ``last`` in place."""
-    done, failed = [], []
-    for d in downloads:
-        before = last.get(d.id)
-        if before in (QUEUED, DOWNLOADING) and d.status == COMPLETED:
-            done.append(d)
-        elif before in (QUEUED, DOWNLOADING) and d.status == ERROR:
-            failed.append(d)
-        last[d.id] = d.status
-    return done, failed
 
 
-def notification_for(done: list[Download], failed: list[Download]):
-    """(title, text, payload) for one notification. Failures come first:
-    they need you; finished files can wait."""
-    if failed:
-        d = failed[0]
-        title = "Download failed" if len(failed) == 1 else \
-            f"{len(failed)} downloads failed"
-        advice = explain(d.error, d.kind)[0].split(". ")[0].rstrip(".")
-        extra = f" {len(done)} other download(s) finished." if done else ""
-        return (title, f"{d.filename or d.url}\n{advice}. Click to fix it."
-                       f"{extra}", ("fix", d.id))
-    if len(done) == 1:
-        d = done[0]
-        return ("Download complete",
-                f"{d.filename}\nClick to show it in its folder.",
-                ("reveal", d.id))
-    names = ", ".join(d.filename or "file" for d in done[:3])
-    more = f" and {len(done) - 3} more" if len(done) > 3 else ""
-    return (f"{len(done)} downloads complete", names + more,
-            ("reveal", done[0].id))
 
 
 ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
@@ -1070,54 +525,13 @@ def main(argv: list[str] | None = None) -> None:
     lock.close()
 
 
-JS_ENGINE_STEP = "a small JavaScript engine (MDI can download it)"
 
 
-def update_question(version: str) -> str:
-    return (f"MDI will download version {version} (about 20 MB) from its "
-            "GitHub release and check it against the release's SHA-256 "
-            "checksums.\n\nThen MDI saves your download list, closes, "
-            "installs the update and opens again by itself. Running "
-            "downloads pause and continue afterwards. Continue?")
 
 
-def addon_link_text(need: list[str]) -> str:
-    return ("Get HD video support" if "ffmpeg" in need
-            else "Fix some YouTube videos") + " (one click)"
 
 
-def addon_question(keys: list[str]) -> str:
-    lines = "\n".join(f"•  {addons.ADDONS[k].title}, about "
-                      f"{addons.ADDONS[k].size_mb} MB" for k in keys)
-    return (f"MDI will download:\n\n{lines}\n\nfrom the projects' official "
-            "GitHub releases, check each file's SHA-256 checksum, and keep "
-            f"them in:\n{addons.tools_dir()}\n\nNothing is installed "
-            "system-wide. Continue?")
 
 
-def js_setup_steps() -> list[str]:
-    """What's missing for YouTube's JavaScript check, as steps."""
-    steps = []
-    try:
-        import yt_dlp_ejs  # noqa: F401
-    except ImportError:
-        steps.append("install a newer MDI" if getattr(sys, "frozen", False)
-                     else 'pip install -U "yt-dlp[default]"')
-    if not addons.has_js_runtime():
-        steps.append(JS_ENGINE_STEP)
-    return steps
 
 
-def status_notes() -> str:
-    from . import media
-
-    notes = []
-    if not media.available():
-        notes.append("video sites OFF (pip install yt-dlp)")
-    else:
-        age = media.age_days()
-        if age is not None and age > 60 and updater.load_state().get("error"):
-            notes.append(f"yt-dlp is {age} days old and couldn't update "
-                         "itself (see mdi.log)")
-        # Missing ffmpeg / JS engine: shown as the one-click link instead.
-    return "".join(" · " + n for n in notes)

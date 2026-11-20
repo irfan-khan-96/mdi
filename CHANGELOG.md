@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.1
+
+- No visible changes. The window code is split into smaller modules (dialogs, flows, wording), and four copies of the "work in the background, then update the window" code are now one shared helper.
+- This release is also the first real test of self-update: MDI 1.4.0 offers it through the status-bar link.
+
 ## 1.4.0
 
 ### New

@@ -53,7 +53,7 @@ It also does the supporting work that makes those four ideas reliable:
 
 **Browser integration** ([mdi/nmhost.py](mdi/nmhost.py) + [extension/](extension/)): this is the other half of why IDM is popular. The browser extension catches downloads and passes them to the app, along with the page's **cookies and Referer**, so downloads that need a login still work. It uses the browser's **native messaging**, like IDM does, so nothing listens on the network. If MDI isn't running, it starts automatically.
 
-**GUI** ([mdi/gui.py](mdi/gui.py)): download list (size, %, speed, ETA, connections, status), Add / Resume / Pause / Remove / Open folder / Settings, and IDM's per-connection bar that shows where each connection is in the file. Ctrl+V opens Add with the URL from the clipboard. Double-click opens a finished file.
+**GUI** ([mdi/gui.py](mdi/gui.py), with the dialogs in [mdi/dialogs.py](mdi/dialogs.py), the fix / helper / update flows in [mdi/flows.py](mdi/flows.py) and the wording in [mdi/texts.py](mdi/texts.py)): download list (size, %, speed, ETA, connections, status), Add / Resume / Pause / Remove / Open folder / Settings, and IDM's per-connection bar that shows where each connection is in the file. Ctrl+V opens Add with the URL from the clipboard. Double-click opens a finished file.
 
 - **When something fails:** the row says what went wrong in one plain sentence. Double-click it for the single fix (Try again, Paste new link, Choose folder or Start over). See [mdi/advice.py](mdi/advice.py).
 - **While you're in another window:** the taskbar button shows the combined progress of all active downloads. A Windows notification tells you when a download finishes or fails. Clicking it shows the file in its folder or opens the fix. Nothing pops up while the MDI window is in front. See [mdi/winshell.py](mdi/winshell.py). It uses no extra libraries, and the notification-area icon only appears once the first notification is shown.
@@ -139,7 +139,7 @@ The design was audited against the OWASP Top 10 (2021). Each fix has a regressio
 
 ## Size and tests
 
-**Result:** about 3,950 lines of Python (comments included) across 14 modules, plus a ~115-line extension and 141 tests. The tests cover:
+**Result:** about 4,100 lines of Python (comments included) across 17 modules, plus a ~115-line extension and 144 tests. The tests cover:
 - multi-connection downloads checked byte-for-byte
 - dynamic splitting of a slow tail
 - pause → restart → resume

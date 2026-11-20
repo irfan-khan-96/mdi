@@ -10,7 +10,7 @@ import urllib.error
 from http.server import ThreadingHTTPServer
 from unittest import mock
 
-from mdi import engine, gui, manager, media
+from mdi import engine, flows, gui, manager, media
 from mdi.advice import explain
 from mdi.engine import (COMPLETED, DOWNLOADING, ERROR, PAUSED, QUEUED,
                         Download, filename_from_response)
@@ -233,7 +233,7 @@ class SmallFixTests(unittest.TestCase):
             d = Download("https://old.test/file", tempfile.mkdtemp(),
                          headers={"Cookie": "sid=1",
                                   "Referer": "https://old.test/"})
-            with mock.patch.object(gui.simpledialog, "askstring",
+            with mock.patch.object(flows.simpledialog, "askstring",
                                    return_value=new):
                 app.apply_fix(d, "new_link")
             self.assertEqual(d.url, new)
