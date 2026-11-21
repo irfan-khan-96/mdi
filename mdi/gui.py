@@ -22,8 +22,8 @@ from .manager import Manager
 from .safety import acquire_instance_lock, get_logger
 from .texts import (EMPTY_HINT, IDLE_HINT, SHORTCUTS_HELP, UNDO_SECONDS,
                     close_text, finished_since, fmt_eta, fmt_size,
-                    notification_for, overall_progress, status_notes,
-                    toggle_plan, undo_text)
+                    notification_for, overall_progress, row_key,
+                    status_notes, toggle_plan, undo_text)
 from .winshell import Notifier, Taskbar, is_foreground
 
 
@@ -142,6 +142,7 @@ class App(Flows):
         self.taskbar = Taskbar(self.hwnd)
         self.notifier = Notifier()
         self._last_status = {d.id: d.status for d in manager.downloads}
+        self._rows: dict = {}     # id -> (row_key, values) last shown
         self._refresh()
 
     # ---- helpers ----------------------------------------------------------
@@ -196,8 +197,7 @@ class App(Flows):
         self._finalize_removal()          # one undo level keeps it simple
         self._undo = self.manager.take(items)
         for d in items:
-            if self.tree.exists(d.id):
-                self.tree.delete(d.id)
+            self._delete_row(d.id)
         self.undo_link.config(text=undo_text(len(self._undo)))
         self.undo_link.pack(side="right")
         self._undo_timer = self.root.after(UNDO_SECONDS * 1000,
@@ -239,8 +239,7 @@ class App(Flows):
             return
         taken = self.manager.take(items)
         for d in items:
-            if self.tree.exists(d.id):
-                self.tree.delete(d.id)
+            self._delete_row(d.id)
         # Stopping connections can take a moment: delete off the UI thread.
         threading.Thread(target=self.manager.discard, args=(taken,),
                          kwargs={"delete_finished": True},
@@ -362,16 +361,44 @@ class App(Flows):
                 selfupdate.latest_known:          # found by the weekly check
             self.show_update_link()
 
+    def _delete_row(self, did: str) -> None:
+        """Take a row off the list and forget what it showed, so it's
+        drawn again if the download comes back (Undo)."""
+        if self.tree.exists(did):
+            self.tree.delete(did)
+        self._rows.pop(did, None)
+
     def _refresh_rows(self) -> float:
-        """Sync the list with the manager; returns total speed."""
+        """Sync the list with the manager; returns total speed.
+
+        Only rows that changed are sent to Tk, and finished, paused or
+        failed downloads aren't even recomputed until something about them
+        changes, so a list of thousands costs about as much as the few
+        that are actually downloading."""
         total = 0.0
+        cache = self._rows
+        seen = set()
         for i, d in enumerate(list(self.manager.downloads)):
+            seen.add(d.id)
+            if d.status == DOWNLOADING:
+                total += d.speed
+            key = row_key(d)
+            old = cache.get(d.id)
+            if old is not None and key is not None and old[0] == key:
+                continue                     # idle and unchanged
             values = self._row(d)
-            if self.tree.exists(d.id):
+            if old is None or not self.tree.exists(d.id):
+                if not self.tree.exists(d.id):
+                    # at its own position, so an undo puts it back in place
+                    self.tree.insert("", i, iid=d.id, values=values)
+                else:
+                    self.tree.item(d.id, values=values)
+            elif old[1] != values:
                 self.tree.item(d.id, values=values)
-            else:   # at its own position, so an undo puts it back in place
-                self.tree.insert("", i, iid=d.id, values=values)
-            total += d.speed if d.status == DOWNLOADING else 0
+            cache[d.id] = (key, values)
+        if len(cache) > len(seen):           # forget removed downloads
+            for gone in set(cache) - seen:
+                del cache[gone]
         return total
 
     # ---- taskbar & notifications ---------------------------------------

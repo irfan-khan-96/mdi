@@ -139,7 +139,7 @@ The design was audited against the OWASP Top 10 (2021). Each fix has a regressio
 
 ## Size and tests
 
-**Result:** about 4,100 lines of Python (comments included) across 17 modules, plus a ~115-line extension and 144 tests. The tests cover:
+**Result:** about 4,100 lines of Python (comments included) across 17 modules, plus a ~115-line extension and 150 tests. The tests cover:
 - multi-connection downloads checked byte-for-byte
 - dynamic splitting of a slow tail
 - pause → restart → resume

@@ -60,6 +60,15 @@ def undo_text(n: int) -> str:
     return f"Removed {what} · Undo (Ctrl+Z)"
 
 
+def row_key(d: Download):
+    """What an idle download's row depends on, or None while it's active
+    (its numbers move, so the row is recomputed on every refresh)."""
+    if d.status == DOWNLOADING or d.is_running:
+        return None
+    return (d.status, d.filename, d.url, d.size, d.resumable, d.error,
+            d.kind, d._media_got if d.kind == "media" else len(d.segments))
+
+
 def toggle_plan(items: list[Download]) -> str | None:
     """Space: pause if anything selected is running or waiting, else resume
     whatever can be resumed."""
