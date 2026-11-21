@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.6.0
 
 - **Speed limit.** Settings → Speed limit (MB/s) caps all downloads together, files and YouTube alike, so downloads don't make browsing or video calls laggy. It applies instantly, and the status bar shows it while it's on. 0 = no limit (the default).
 - Releases now stop if the pinned Deno version is more than 6 months old.
