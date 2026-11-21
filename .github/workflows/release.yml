@@ -38,6 +38,11 @@ jobs:
       - name: Run tests
         run: python -m unittest discover -s tests -t .
 
+      - name: Check pinned helpers aren't stale (Deno)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python tools/check_pins.py
+
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
 

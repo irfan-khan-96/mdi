@@ -77,7 +77,7 @@ YouTube shows some videos, such as ones made for kids, only to players that pass
 
 **One-click helpers.** While ffmpeg or a JavaScript engine is missing, the status bar shows **Get HD video support** (or **Fix some YouTube videos** if only the engine is missing). One click, after you confirm, downloads:
 - **ffmpeg** (about 86 MB) from [yt-dlp's FFmpeg builds](https://github.com/yt-dlp/FFmpeg-Builds). Only `ffmpeg.exe`, `ffprobe.exe` and their DLLs are kept.
-- **Deno** (about 41 MB download, 94 MB on disk) from [Deno's releases](https://github.com/denoland/deno), pinned to v2.9.8. It's yt-dlp's default JavaScript engine. The smaller QuickJS was tried and dropped: it added about 10 seconds to every YouTube video, while Deno is as fast as Node.js (about 4 s).
+- **Deno** (about 41 MB download, 94 MB on disk) from [Deno's releases](https://github.com/denoland/deno), pinned to v2.9.8. It's yt-dlp's default JavaScript engine. A release can't go out with a Deno pin older than 6 months: [tools/check_pins.py](tools/check_pins.py) stops it and names the version to move to. The smaller QuickJS was tried and dropped: it added about 10 seconds to every YouTube video, while Deno is as fast as Node.js (about 4 s).
 
 Each file must match the SHA-256 digest GitHub lists for it, and Deno must also match the hash written into [mdi/addons.py](mdi/addons.py). They're kept in `%LOCALAPPDATA%\MDI\tools` and only MDI's own PATH points there, so nothing changes system-wide. They work straight away, without a restart. If you already have ffmpeg, Node.js, Deno or Bun installed, MDI uses those and the link doesn't appear.
 
@@ -139,7 +139,7 @@ The design was audited against the OWASP Top 10 (2021). Each fix has a regressio
 
 ## Size and tests
 
-**Result:** about 4,100 lines of Python (comments included) across 17 modules, plus a ~115-line extension and 150 tests. The tests cover:
+**Result:** about 4,100 lines of Python (comments included) across 17 modules, plus a ~115-line extension and 153 tests. The tests cover:
 - multi-connection downloads checked byte-for-byte
 - dynamic splitting of a slow tail
 - pause → restart → resume
