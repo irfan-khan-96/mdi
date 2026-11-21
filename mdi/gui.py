@@ -351,8 +351,10 @@ class App(Flows):
         total = self._refresh_rows()
         active = sum(1 for d in self.manager.downloads
                      if d.status == DOWNLOADING)
+        limit = self.manager.settings.get("speed_limit") or 0
+        capped = f" (limit {limit:g} MB/s)" if limit else ""
         self.status.config(text=f"{active} active · {fmt_size(total)}/s"
-                                f"{self.bridge_note}")
+                                f"{capped}{self.bridge_note}")
         self._draw_segments()
         self._update_taskbar()
         self._notify_finished()

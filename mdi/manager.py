@@ -25,7 +25,14 @@ DEFAULT_SETTINGS = {
     "connections": 8,
     "max_parallel": 3,
     "video_quality": "best",
+    "speed_limit": 0.0,          # MB/s for all downloads together; 0 = off
 }
+MB = 1024 * 1024
+
+
+def apply_speed_limit(mb_per_s: float) -> None:
+    from .engine import LIMITER
+    LIMITER.set(mb_per_s * MB)
 QUALITY_KEYS = ("best", "1080", "720", "480", "audio")
 MAX_INBOX_FILE = 1 << 20
 STOP_WAIT = 40    # seconds; longer than the engine's socket timeout
@@ -66,6 +73,7 @@ class Manager:
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._load()
+        apply_speed_limit(self.settings["speed_limit"])
         self._thread = threading.Thread(target=self._loop, daemon=True,
                                         name="scheduler")
         self._thread.start()
@@ -258,6 +266,11 @@ class Manager:
             self.settings["download_dir"] = s["download_dir"]
         self.settings["connections"] = _clamp(s.get("connections"), 1, 32, 8)
         self.settings["max_parallel"] = _clamp(s.get("max_parallel"), 1, 10, 3)
+        try:
+            limit = float(s.get("speed_limit") or 0)
+        except (TypeError, ValueError):
+            limit = 0.0
+        self.settings["speed_limit"] = round(max(0.0, min(10000.0, limit)), 1)
         if s.get("video_quality") in QUALITY_KEYS:
             self.settings["video_quality"] = s["video_quality"]
         for rec in records:

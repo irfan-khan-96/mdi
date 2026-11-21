@@ -87,6 +87,44 @@ class _SafeRedirect(urllib.request.HTTPRedirectHandler):
         return new
 
 
+class RateLimiter:
+    """One speed limit shared by every download (files and videos), so the
+    total stays under it however many run at once. ``take(n)`` waits until
+    ``n`` more bytes fit in the limit. A rate of 0 means no limit."""
+
+    BURST = 0.25        # seconds of data allowed in one go after an idle spell
+
+    def __init__(self) -> None:
+        self.rate = 0.0                 # bytes per second
+        self._lock = threading.Lock()
+        self._next = 0.0                # when the bytes taken so far are "paid"
+
+    def set(self, bytes_per_second: float) -> None:
+        with self._lock:
+            self.rate = max(0.0, float(bytes_per_second or 0))
+            self._next = time.monotonic()
+
+    def read_size(self, want: int) -> int:
+        """Smaller reads under a limit, so progress stays smooth."""
+        r = self.rate
+        return want if r <= 0 else max(16 * 1024, min(want, int(r / 10)))
+
+    def take(self, n: int, halt: threading.Event | None = None) -> None:
+        with self._lock:
+            if self.rate <= 0:
+                return
+            now = time.monotonic()
+            self._next = max(self._next, now - self.BURST) + n / self.rate
+            wait = self._next - now
+        if wait > 0:
+            if halt is not None:
+                halt.wait(wait)         # returns at once when paused
+            else:
+                time.sleep(wait)
+
+
+LIMITER = RateLimiter()
+
 OPENER = urllib.request.build_opener(
     urllib.request.HTTPSHandler(context=SSL_CONTEXT), _SafeRedirect)
 
@@ -633,7 +671,7 @@ class Download:
                 if end is not None and seg.pos > end:
                     return
                 want = CHUNK if end is None else min(CHUNK, end - seg.pos + 1)
-                data = r.read(want)
+                data = r.read(LIMITER.read_size(want))
                 if not data:
                     if end is None:            # unknown size: EOF = done
                         with self._lock:
@@ -645,6 +683,7 @@ class Download:
                     end = seg.end              # may have shrunk (split)
                 if end is not None:
                     data = data[:max(0, end - seg.pos + 1)]
+                LIMITER.take(len(data), self._halt)
                 view = memoryview(data)
                 while view:                    # raw writes may be partial
                     view = view[fh.write(view):]

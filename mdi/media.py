@@ -287,14 +287,23 @@ def download(dl) -> None:
 
     finished = {"bytes": 0}
 
+    from .engine import LIMITER
+    seen = {"bytes": 0}
+
     def hook(d: dict) -> None:
         if dl._halt.is_set():
             raise _Paused()
         got = d.get("downloaded_bytes") or 0
         if d["status"] == "downloading":
+            # The shared speed limit: sleeping here holds back yt-dlp's
+            # download thread, like the engine's own connections.
+            if got > seen["bytes"]:
+                LIMITER.take(got - seen["bytes"], dl._halt)
+            seen["bytes"] = got
             dl._media_got = finished["bytes"] + got
             dl.speed = d.get("speed") or 0.0
         elif d["status"] == "finished":
+            seen["bytes"] = 0           # the next stream starts from zero
             finished["bytes"] += d.get("total_bytes") or got
             dl._media_got = finished["bytes"]
 

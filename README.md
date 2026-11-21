@@ -139,7 +139,7 @@ The design was audited against the OWASP Top 10 (2021). Each fix has a regressio
 
 ## Size and tests
 
-**Result:** about 4,100 lines of Python (comments included) across 17 modules, plus a ~115-line extension and 153 tests. The tests cover:
+**Result:** about 4,100 lines of Python (comments included) across 17 modules, plus a ~115-line extension and 161 tests. The tests cover:
 - multi-connection downloads checked byte-for-byte
 - dynamic splitting of a slow tail
 - pause → restart → resume
@@ -163,4 +163,5 @@ The installer bundles Python (PSF License), yt-dlp (Unlicense) and certifi (MPL 
 - Cookies captured from the browser are saved DPAPI-encrypted in `mdi.json` only until the download finishes, so an unfinished download can resume after a restart.
 - MDI identifies itself honestly as `MDI-Downloader/<version>`. Pretending to be Chrome gets downloads dropped by bot protection, because the network fingerprint doesn't match.
 - If a server answers *429 Too Many Requests*, MDI closes the extra connections, hands their pieces to the ones that remain, and respects `Retry-After`. The first request is retried like the rest.
+- **Speed limit:** Settings → *Speed limit (MB/s)* caps all downloads together, files and videos alike, so a big download doesn't make browsing or calls laggy. It takes effect immediately, and the status bar shows it while it's on. 0 means no limit (the default).
 - Up to 32 connections per download are allowed. 8 is the default (IDM's default too). Some servers throttle or block clients that open too many connections.

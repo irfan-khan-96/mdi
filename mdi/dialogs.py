@@ -13,6 +13,7 @@ from tkinter import filedialog, messagebox, ttk
 from . import media
 from .advice import ACTION_LABELS, explain
 from .engine import Download
+from .manager import apply_speed_limit
 
 if TYPE_CHECKING:
     from .gui import App
@@ -265,6 +266,7 @@ class SettingsDialog(tk.Toplevel):
             "download_dir": tk.StringVar(value=s["download_dir"]),
             "connections": tk.IntVar(value=s["connections"]),
             "max_parallel": tk.IntVar(value=s["max_parallel"]),
+            "speed_limit": tk.StringVar(value=limit_text(s["speed_limit"])),
         }
         f = ttk.Frame(self, padding=12)
         f.pack()
@@ -283,6 +285,15 @@ class SettingsDialog(tk.Toplevel):
         ttk.Spinbox(f, from_=1, to=10, width=5,
                     textvariable=self.vars["max_parallel"]).grid(
             row=2, column=1, sticky="w", pady=3)
+        ttk.Label(f, text="Speed limit (MB/s)").grid(
+            row=3, column=0, sticky="w")
+        limit = ttk.Frame(f)
+        limit.grid(row=3, column=1, columnspan=2, sticky="w", pady=3)
+        ttk.Spinbox(limit, from_=0, to=1000, increment=0.5, width=6,
+                    textvariable=self.vars["speed_limit"]).pack(side="left")
+        ttk.Label(limit, text="  0 = no limit. Applies to all downloads "
+                              "together, at once.",
+                  foreground="gray").pack(side="left")
         b = ttk.Frame(f)
         b.grid(row=4, column=0, columnspan=3, sticky="e", pady=(10, 0))
         ttk.Button(b, text="Save", command=self._ok).pack(side="left", padx=4)
@@ -303,5 +314,23 @@ class SettingsDialog(tk.Toplevel):
         except (tk.TclError, ValueError):
             pass
         s["download_dir"] = self.vars["download_dir"].get().strip() or s["download_dir"]
+        s["speed_limit"] = parse_limit(self.vars["speed_limit"].get(),
+                                       s["speed_limit"])
+        apply_speed_limit(s["speed_limit"])
         self.app.manager.save()
         self.destroy()
+
+
+def limit_text(mb: float) -> str:
+    return "0" if not mb else f"{mb:g}"
+
+
+def parse_limit(text: str, old: float) -> float:
+    """MB/s from the settings box: "2", "2.5", "2,5"; blank = off."""
+    text = (text or "").strip().replace(",", ".").lower().removesuffix("mb/s")
+    if not text:
+        return 0.0
+    try:
+        return round(max(0.0, min(10000.0, float(text))), 1)
+    except ValueError:
+        return old

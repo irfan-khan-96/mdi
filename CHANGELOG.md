@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Speed limit.** Settings → Speed limit (MB/s) caps all downloads together, files and YouTube alike, so downloads don't make browsing or video calls laggy. It applies instantly, and the status bar shows it while it's on. 0 = no limit (the default).
+- Releases now stop if the pinned Deno version is more than 6 months old.
+
 ## 1.5.0
 
 - **Smoother with big lists.** The download list only redraws rows that changed; finished, paused and failed downloads cost nothing until they change. With 2,000 downloads a refresh takes about 45 ms instead of 120 ms, and 5,000 costs about the same.
