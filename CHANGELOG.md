@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.0
+
+- **Smoother with big lists.** The download list only redraws rows that changed; finished, paused and failed downloads cost nothing until they change. With 2,000 downloads a refresh takes about 45 ms instead of 120 ms, and 5,000 costs about the same.
+- Every release is now smoke-tested before it's published: the installer is installed, the installed MDI downloads a file, and it's uninstalled again.
+
 ## 1.4.2
 
 - **Fixed:** after updating itself (or when started from the installer's last page), MDI couldn't find an ffmpeg installed through WinGet and offered to download it again. The installer now starts MDI through Explorer, so it runs as a normal program. Updating to this version fixes it.
