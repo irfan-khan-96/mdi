@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.7.0
 
 - **New icon.** A cleaner, softer version of the arrow-and-globe mascot. The small taskbar and title-bar sizes are drawn separately, so they stay sharp instead of blurring.
 - **Toolbar icons** next to each button's label, and an **About** box (ⓘ at the right of the toolbar) with the version and project link.
