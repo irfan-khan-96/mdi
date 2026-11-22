@@ -93,7 +93,7 @@ The status bar also says when yt-dlp is missing, or old and unable to update its
 4. Downloads are now captured automatically. Click the toolbar button to turn capture ON or OFF, or right-click a link and choose **Download with MDI**. Downloads from incognito windows are never captured. If MDI isn't registered, the browser downloads the file normally.
 
 ### Icon
-The icon is a cartoon orange globe with a smiling blue arrow diving in. It's an original design, a reversed take on the classic download-manager look. [mdi/assets/](mdi/assets/) holds the window/taskbar icon (`icon.ico`, `icon.png`) and [extension/icons/](extension/icons/) holds the browser toolbar icons. To redraw them, edit [tools/make_icon.py](tools/make_icon.py) and run it (needs Pillow).
+The icon is a friendly blue arrow diving into an orange globe, on an indigo tile. It's an original design. The small sizes Windows uses in the taskbar and title bar (16–32 px) are drawn separately with fewer, bolder shapes, so they stay readable. [mdi/assets/](mdi/assets/) holds the window icon (`icon.ico`, `icon.png`) and the toolbar glyphs (`tb_*.png`). To redraw them, edit [tools/make_icon.py](tools/make_icon.py) and run it (needs Pillow).
 
 ## What was removed, and why
 
@@ -139,7 +139,7 @@ The design was audited against the OWASP Top 10 (2021). Each fix has a regressio
 
 ## Size and tests
 
-**Result:** about 4,100 lines of Python (comments included) across 17 modules, plus a ~115-line extension and 161 tests. The tests cover:
+**Result:** about 4,100 lines of Python (comments included) across 17 modules, plus a ~115-line extension and 167 tests. The tests cover:
 - multi-connection downloads checked byte-for-byte
 - dynamic splitting of a slow tail
 - pause → restart → resume

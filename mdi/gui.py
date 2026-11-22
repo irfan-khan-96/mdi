@@ -14,8 +14,9 @@ from tkinter import messagebox, ttk
 
 from . import media, selfupdate, updater
 from .advice import explain
-from .dialogs import AddDialog, FixDialog, SettingsDialog, open_path, reveal
-from .engine import (COMPLETED, DOWNLOADING, ERROR, QUEUED, Download,
+from .dialogs import (AboutDialog, AddDialog, FixDialog, SettingsDialog,
+                      open_path, reveal)
+from .engine import (COMPLETED, DOWNLOADING, ERROR, PAUSED, QUEUED, Download,
                      sanitize_filename)
 from .flows import Flows
 from .manager import Manager
@@ -58,11 +59,21 @@ class App(Flows):
 
         bar = ttk.Frame(root, padding=(6, 6, 6, 0))
         bar.pack(fill="x")
-        for text, cmd in (("Add URL", self.add), ("Resume", self.resume),
-                          ("Pause", self.pause), ("Remove", self.remove),
-                          ("Open folder", self.open_folder),
-                          ("Settings", lambda: SettingsDialog(self))):
-            ttk.Button(bar, text=text, command=cmd).pack(side="left", padx=2)
+        self._glyphs = load_glyphs(root)
+        for key, text, cmd in (("add", "Add URL", self.add),
+                               ("resume", "Resume", self.resume),
+                               ("pause", "Pause", self.pause),
+                               ("remove", "Remove", self.remove),
+                               ("folder", "Open folder", self.open_folder),
+                               ("settings", "Settings",
+                                lambda: SettingsDialog(self))):
+            ttk.Button(bar, text=text, command=cmd, compound="left",
+                       image=self._glyphs.get(key, "")).pack(side="left",
+                                                              padx=2)
+        about = self._glyphs.get("about")
+        ttk.Button(bar, text="About", command=lambda: AboutDialog(self),
+                   image=about or "", compound="image" if about else "text",
+                   width=0 if about else 6).pack(side="right", padx=2)
 
         body = ttk.Frame(root, padding=6)
         body.pack(fill="both", expand=True)
@@ -77,6 +88,10 @@ class App(Flows):
         self.tree.configure(yscrollcommand=sb.set)
         self.tree.pack(side="left", fill="both", expand=True)
         sb.pack(side="left", fill="y")
+        # Status colours: only rows that need attention stand out.
+        for status, colour in ((DOWNLOADING, "#1a5fb4"), (ERROR, "#c01c28"),
+                               (PAUSED, "#77767b")):
+            self.tree.tag_configure(status, foreground=colour)
         self.tree.bind("<Double-1>", self._on_double)
         self.tree.bind("<<TreeviewSelect>>", lambda e: self._draw_segments())
         # Keyboard: every toolbar action has a key (F1 lists them).
@@ -392,11 +407,12 @@ class App(Flows):
             if old is None or not self.tree.exists(d.id):
                 if not self.tree.exists(d.id):
                     # at its own position, so an undo puts it back in place
-                    self.tree.insert("", i, iid=d.id, values=values)
+                    self.tree.insert("", i, iid=d.id, values=values,
+                                     tags=(d.status,))
                 else:
-                    self.tree.item(d.id, values=values)
+                    self.tree.item(d.id, values=values, tags=(d.status,))
             elif old[1] != values:
-                self.tree.item(d.id, values=values)
+                self.tree.item(d.id, values=values, tags=(d.status,))
             cache[d.id] = (key, values)
         if len(cache) > len(seen):           # forget removed downloads
             for gone in set(cache) - seen:
@@ -491,6 +507,24 @@ class App(Flows):
 
 
 ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+
+
+def load_glyphs(root: tk.Tk) -> dict:
+    """Toolbar icons, 32 px on high-DPI screens, else 20 px. Missing files
+    just mean text-only buttons."""
+    try:
+        px = 32 if float(root.tk.call("tk", "scaling")) >= 1.9 else 20
+    except (tk.TclError, ValueError):
+        px = 20
+    glyphs = {}
+    for name in ("add", "resume", "pause", "remove", "folder", "settings",
+                 "about"):
+        try:
+            glyphs[name] = tk.PhotoImage(
+                master=root, file=os.path.join(ASSETS, f"tb_{name}_{px}.png"))
+        except tk.TclError:
+            pass
+    return glyphs
 
 
 def set_icon(root: tk.Tk) -> None:

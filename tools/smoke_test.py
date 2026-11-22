@@ -107,7 +107,14 @@ def main(setup: str) -> int:
         # 3. the installed app downloads a file
         with open(os.path.join(roaming, "MDI", "mdi.json"), "w") as f:
             json.dump({"settings": {"download_dir": out}, "downloads": []}, f)
-        ref = os.environ.get("GITHUB_SHA") or "main"
+        # The same commit on both sides: GitHub's copy of the file at that
+        # commit vs git's own copy (the working tree may hold newer edits).
+        ref = os.environ.get("GITHUB_SHA") or subprocess.run(
+            ["git", "rev-parse", "origin/main"], cwd=ROOT, capture_output=True,
+            text=True).stdout.strip() or "main"
+        expected = hashlib.sha256(subprocess.run(
+            ["git", "show", f"{ref}:{SAMPLE}"], cwd=ROOT,
+            capture_output=True).stdout).hexdigest()
         url = f"https://raw.githubusercontent.com/irfan-khan-96/mdi/{ref}/{SAMPLE}"
         env = dict(os.environ, APPDATA=roaming, LOCALAPPDATA=local)
         log = os.path.join(roaming, "MDI", "mdi.log")
@@ -127,7 +134,7 @@ def main(setup: str) -> int:
         check(result == "completed",
               f"it downloaded a file ({time.time() - started:.0f} s)")
         got = os.path.join(out, os.path.basename(SAMPLE))
-        check(os.path.isfile(got) and sha(got) == sha(os.path.join(ROOT, SAMPLE)),
+        check(os.path.isfile(got) and sha(got) == expected,
               "the file arrived intact")
         check(os.path.exists(got + ":Zone.Identifier"),
               "it's tagged as downloaded from the Internet")

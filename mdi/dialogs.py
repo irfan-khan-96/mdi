@@ -254,6 +254,56 @@ class FixDialog(tk.Toplevel):
         self.grab_set()
 
 
+PROJECT_URL = "https://github.com/irfan-khan-96/mdi"
+ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+
+
+class AboutDialog(tk.Toplevel):
+    """Name, version and where the source lives. Nothing to configure."""
+
+    def __init__(self, app: "App"):
+        from . import __version__, selfupdate
+        super().__init__(app.root)
+        self.title("About MDI Downloader")
+        self.resizable(False, False)
+        self.transient(app.root)
+        f = ttk.Frame(self, padding=(28, 22))
+        f.pack(fill="both", expand=True)
+        try:
+            self._logo = tk.PhotoImage(
+                master=self, file=os.path.join(ASSETS, "icon.png")).subsample(2)
+            ttk.Label(f, image=self._logo).pack(pady=(0, 10))
+        except tk.TclError:
+            pass
+        ttk.Label(f, text="MDI Downloader",
+                  font=("Segoe UI Semibold", 15)).pack()
+        ttk.Label(f, text=f"Version {__version__}",
+                  foreground="#555555").pack(pady=(2, 10))
+        ttk.Label(f, text="Fast, minimal download manager.").pack()
+        newer = selfupdate.available() if selfupdate.enabled() else None
+        if newer:
+            ttk.Label(f, text=f"Version {newer} is available: use the link "
+                              "in the status bar.",
+                      foreground="#1a5fb4").pack(pady=(6, 0))
+        ttk.Label(f, text="Free software under the GNU GPL v3.",
+                  foreground="#555555").pack(pady=(10, 0))
+        link = ttk.Label(f, text=PROJECT_URL.removeprefix("https://"),
+                         foreground="#1a5fb4", cursor="hand2")
+        link.pack(pady=(2, 14))
+        link.bind("<Button-1>", lambda e: open_link(PROJECT_URL))
+        close = ttk.Button(f, text="Close", command=self.destroy)
+        close.pack()
+        close.focus_set()
+        self.bind("<Escape>", lambda e: self.destroy())
+        self.bind("<Return>", lambda e: self.destroy())
+        self.grab_set()
+
+
+def open_link(url: str) -> None:
+    import webbrowser
+    webbrowser.open(url)
+
+
 class SettingsDialog(tk.Toplevel):
     def __init__(self, app: "App"):
         super().__init__(app.root)

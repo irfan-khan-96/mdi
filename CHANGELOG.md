@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **New icon.** A cleaner, softer version of the arrow-and-globe mascot. The small taskbar and title-bar sizes are drawn separately, so they stay sharp instead of blurring.
+- **Toolbar icons** next to each button's label, and an **About** box (ⓘ at the right of the toolbar) with the version and project link.
+- **Status colours:** downloading rows are blue, paused grey and failed red, so the ones that need attention stand out. Finished rows stay plain.
+
 ## 1.6.1
 
 - **Video quality always starts at Best.** The Add dialog no longer remembers the last quality you picked; choosing 720p, say, applies to that download (or playlist) only.
