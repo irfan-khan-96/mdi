@@ -102,7 +102,7 @@ class AddDialog(tk.Toplevel):
         # Only appears for video-site links.
         self.labels = dict(media.QUALITIES)
         self.quality = tk.StringVar(
-            value=self.labels.get(s.get("video_quality"), "Best"))
+            value="Best")        # always starts at Best; change per download
         self.quality_label = ttk.Label(f, text="Quality")
         self.quality_box = ttk.Combobox(
             f, textvariable=self.quality, state="readonly", width=12,
@@ -156,12 +156,12 @@ class AddDialog(tk.Toplevel):
             self.quality_box.grid_remove()
 
     def chosen_quality(self) -> str | None:
-        """The quality key if the option is showing (and remember it)."""
+        """The quality key if the option is showing. Not remembered: the
+        next download starts at Best again."""
         if not self.quality_box.winfo_ismapped():
             return None
         key = next((k for k, v in self.labels.items()
                     if v == self.quality.get()), "best")
-        self.app.manager.settings["video_quality"] = key
         return key
 
     def _show_playlist_option(self):

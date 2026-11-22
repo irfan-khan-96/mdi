@@ -67,7 +67,7 @@ pip install "yt-dlp[default]"    # includes yt-dlp-ejs, see below
 ```
 
 - **For HD:** MDI needs [ffmpeg](https://ffmpeg.org/). YouTube sends HD video and audio as separate streams, and ffmpeg merges them into one `.mp4`. Without ffmpeg, MDI uses the best format that already has both, often 360p.
-- **Quality:** for a video-site link, the Add dialog shows a **Quality** choice: Best, 1080p, 720p, 480p or Audio only. If the exact quality doesn't exist, MDI takes the best one below it. Audio only saves an MP3 (with ffmpeg) or the site's own M4A audio (without). MDI remembers your choice, and a playlist uses it for every video.
+- **Quality:** for a video-site link, the Add dialog shows a **Quality** choice: Best, 1080p, 720p, 480p or Audio only. If the exact quality doesn't exist, MDI takes the best one below it. Audio only saves an MP3 (with ffmpeg) or the site's own M4A audio (without). It always starts at Best; a different choice applies to that download only (or to every video of that playlist).
 - **Playlists:** for a playlist link, the Add dialog shows a "Download the whole playlist" checkbox. Tick it and MDI reads the list (nothing is downloaded yet), then adds each video as its own row in a folder named after the playlist. Private or deleted videos and ones already in the list are skipped, and at most 1000 videos are added. Unticked, a `watch?v=…&list=…` link downloads only that video.
 - **Your responsibility:** downloading from YouTube is against its Terms of Service, and copyright still applies. Only download what you have the right to.
 

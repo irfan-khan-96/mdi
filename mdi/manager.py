@@ -24,7 +24,6 @@ DEFAULT_SETTINGS = {
     "download_dir": os.path.join(os.path.expanduser("~"), "Downloads"),
     "connections": 8,
     "max_parallel": 3,
-    "video_quality": "best",
     "speed_limit": 0.0,          # MB/s for all downloads together; 0 = off
 }
 MB = 1024 * 1024
@@ -89,7 +88,7 @@ class Manager:
         d = Download(url, save_dir or self.settings["download_dir"],
                      connections or self.settings["connections"],
                      clean_headers(headers), filename)
-        q = quality or self.settings["video_quality"]
+        q = quality or "best"            # Best unless chosen for this one
         d.quality = q if q in QUALITY_KEYS else "best"
         d.status = QUEUED if start else PAUSED
         with self._lock:
@@ -271,8 +270,6 @@ class Manager:
         except (TypeError, ValueError):
             limit = 0.0
         self.settings["speed_limit"] = round(max(0.0, min(10000.0, limit)), 1)
-        if s.get("video_quality") in QUALITY_KEYS:
-            self.settings["video_quality"] = s["video_quality"]
         for rec in records:
             try:
                 rec = dict(rec)

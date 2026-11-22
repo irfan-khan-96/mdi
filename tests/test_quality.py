@@ -42,34 +42,40 @@ class FormatTests(unittest.TestCase):
             self.assertFalse(media.is_video_site("https://a.test/f.zip"))
 
 
-class RememberTests(unittest.TestCase):
+class DefaultTests(unittest.TestCase):
+    """Best is the default for every download; a different choice applies
+    to that download (or playlist) only and isn't remembered."""
+
     def setUp(self):
         self.dir = tempfile.mkdtemp()
         self.store = os.path.join(self.dir, "s.json")
 
-    def test_default_explicit_and_saved(self):
+    def test_best_unless_chosen_and_kept_per_download(self):
         m = Manager(self.store, os.path.join(self.dir, "inbox"))
         try:
-            m.settings["video_quality"] = "480"
             a = m.add("https://a.test/1", start=False)
-            b = m.add("https://a.test/2", start=False, quality="audio")
-            c = m.add("https://a.test/3", start=False, quality="8k")
-            self.assertEqual((a.quality, b.quality, c.quality),
-                             ("480", "audio", "best"))
+            b = m.add("https://a.test/2", start=False, quality="720")
+            c = m.add("https://a.test/3", start=False)
+            d = m.add("https://a.test/4", start=False, quality="8k")
+            self.assertEqual([x.quality for x in (a, b, c, d)],
+                             ["best", "720", "best", "best"])
         finally:
             m.shutdown()
         m2 = Manager(self.store, os.path.join(self.dir, "inbox"))
         m2.shutdown()
-        self.assertEqual(m2.settings["video_quality"], "480")
-        self.assertEqual([d.quality for d in m2.downloads],
-                         ["480", "audio", "best"])
+        self.assertEqual([x.quality for x in m2.downloads],
+                         ["best", "720", "best", "best"])   # survives restart
 
-    def test_tampered_setting_is_ignored(self):
+    def test_a_remembered_choice_from_older_versions_is_ignored(self):
         with open(self.store, "w") as f:
-            json.dump({"settings": {"video_quality": "../x"}}, f)
+            json.dump({"settings": {"video_quality": "480"}}, f)
         m = Manager(self.store, os.path.join(self.dir, "inbox"))
-        m.shutdown()
-        self.assertEqual(m.settings["video_quality"], "best")
+        try:
+            self.assertEqual(m.add("https://a.test/1", start=False).quality,
+                             "best")
+            self.assertNotIn("video_quality", m.settings)
+        finally:
+            m.shutdown()
 
     def test_old_saved_downloads_default_to_best(self):
         d = Download.from_dict({"id": "x", "url": "https://a.test/f",
