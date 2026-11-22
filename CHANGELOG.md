@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.6.1
 
 - **Video quality always starts at Best.** The Add dialog no longer remembers the last quality you picked; choosing 720p, say, applies to that download (or playlist) only.
 
